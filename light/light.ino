@@ -5,17 +5,25 @@
 
 
 
+//----------Start of define----------
+#define Light 14 // on Arduino UNO PIN 13 -> Wemos declarate as 14 - WEIRD :D
+//----------End of define----------
+
+
+
 //----------Start of network settings----------
 const char* ssid = "DESKTOP-066IE8G 4066";
 const char* password = "janko888";
 unsigned int localPort = 8888;      // port to listen on
 IPAddress ip_pc(192, 168, 137, 1);  // gateway
+IPAddress remote_ip;
 WiFiUDP udp;  // instance to receive a send packet via UDP
 int sequence_number = 0;
 int packetSize = 0;
-IPAddress remote_ip;
 int remote_port;
-char packet_buffer[UDP_TX_PACKET_MAX_SIZE]; //buffer to hold incoming packet,
+byte packet_buffer[UDP_TX_PACKET_MAX_SIZE]; //buffer to hold incoming packet
+byte my_array[10]={-1,0,1,150,254,255,256,257,350,720};
+byte ack_msg[6]={0,2,0,0,10,10};
 //----------End of network settings----------
 
 
@@ -38,13 +46,16 @@ char private_key[33] = "FroneedbosghefmygNoghWyljirteirj";
 void connect_to_net_via_wifi();
 void sensors_and_actuators_init();
 void reg_and_auth();
-int identify_packet();
-void func_0();
-void func_1();
+byte identify_packet();
 void print_general_info();
 int parse_packet();
-void send_udp_msg(IPAddress dst_ip, int dst_port, char *msg, int size_of_msg);
-void default_function();
+void send_udp_msg(IPAddress dst_ip, int dst_port, char *msg);
+void send_udp_msg(IPAddress dst_ip, int dst_port, byte msg[], byte size_of_msg);
+void default_func();
+void change_light_state(byte state);
+void command_func();
+int checksum_check();
+int convert_byte_to_int(byte data[], byte start_index, byte data_size);
 //----------End of function declaration----------
 
 
@@ -64,11 +75,37 @@ void connect_to_net_via_wifi()
 
 
 
+int convert_byte_to_int(byte data[], byte start_index, byte data_size)
+{
+    int result = 0;
+    for (byte i = 0; i < data_size; i++)
+  {
+      byte pom = start_index + data_size - 1 - i;
+      byte offset = 0;
+      for (byte j = 0; j < i; j++)
+      {
+          offset += 8;
+      }
+      result += data[pom] << offset;
+  }
+  return result;
+}
+
+
+
 void sensors_and_actuators_init()
 {
-  Serial.println("Start of S & A init");
-  // code of special S & A
-  Serial.println("End of S & A init");
+  pinMode(Light, OUTPUT);
+}
+
+
+
+void change_light_state(byte state)
+{
+  if (state)
+    digitalWrite(Light, HIGH);
+  else
+    digitalWrite(Light, LOW);
 }
 
 
@@ -82,25 +119,27 @@ void reg_and_auth()
 
 
 
-int identify_packet()
-{
-  int type_of_packet = -1;
-  // get type of packet and return
-  return type_of_packet;
+byte identify_packet()
+{  
+  return convert_byte_to_int(packet_buffer, 0, 2); // get type of packet and return
 }
 
 
 
-void func_0()
+int checksum_check()
 {
-  // something to DO
+  return 1; //checksum check disabled
 }
 
 
 
-void func_1()
+void command_func()
 {
-  // something to DO
+  Serial.print("Number of CMDS ");
+  Serial.println(convert_byte_to_int(packet_buffer, 4, 1)); // return number of cmds  
+  
+  change_light_state(convert_byte_to_int(packet_buffer, 6, 1)); // change state of lamp
+  send_udp_msg(remote_ip, remote_port, ack_msg, (sizeof(ack_msg))); // send ACK
 }
 
 
@@ -128,36 +167,49 @@ void print_general_info()
 
 int parse_packet()
 {
-  Serial.println("Start of parse packet");
-
   remote_ip = udp.remoteIP(); // read the packet remote IP
   remote_port = udp.remotePort(); // read the packet remote port
   udp.read(packet_buffer, UDP_TX_PACKET_MAX_SIZE); // read the packet into packetBufffer
   print_general_info();
-  
-  switch(identify_packet())
-  {
-   case 0 :
-      func_0();
-      break;
-   case 1 :
-      func_1();
-      break;
-   default :
-   default_function();
-}
-  
-  Serial.println("End of parse packet");
 
-  if (true) // temporary to pass program
-    return 1; //corect parse packet
+  if (checksum_check())
+  {
+    switch(identify_packet())
+    {
+     case 1 :
+        //register_response_func();
+        break;
+     case 2 :
+        //acknowledgement_func();
+        break;
+     case 3 :
+        //not_acknowledgement_func();
+        break;
+     case 4 :
+        //authentication_func();
+        break;
+     case 6 :
+        command_func();
+        break;
+     case 7 :
+        //status_func();
+        break;
+     case 8 :
+        //finish_func();
+        break;
+     default :
+     default_func();
+    }
+  }
   else
     return 0; //fail of parse packet
+    
+  return 1; //corect parse packet
 }
 
 
 
-void send_udp_msg(IPAddress dst_ip, int dst_port, char *msg, int size_of_msg)
+void send_udp_msg(IPAddress dst_ip, int dst_port, char *msg)
 {
    // send a reply, to the IP address and port that sent us the packet we received
       udp.beginPacket(dst_ip, dst_port);
@@ -168,18 +220,25 @@ void send_udp_msg(IPAddress dst_ip, int dst_port, char *msg, int size_of_msg)
 
 
 
-void default_function() // print receivd msg and send error msg back
+void send_udp_msg(IPAddress dst_ip, int dst_port, byte msg[], byte size_of_msg)
 {
-  Serial.println("Start of default function");      
-      
-      Serial.println("Contents of packet:");
+   // send a reply, to the IP address and port that sent us the packet we received
+      udp.beginPacket(dst_ip, dst_port);
+      udp.write(msg, size_of_msg);
+      udp.endPacket();
+      delay(10);
+}
+
+
+
+void default_func() // print receivd msg and send error msg back
+{
+      Serial.print("Default function, contents of packet: ");
       for (int i = 0; i < packetSize; i++)
         Serial.print(packet_buffer[i]);
       Serial.println("");
 
-      send_udp_msg(remote_ip, remote_port, reply_err_msg, sizeof(reply_err_msg));
-  
-  Serial.println("End of default function");
+      send_udp_msg(remote_ip, remote_port, my_array, (sizeof(my_array)));
 }
 
 
@@ -188,6 +247,7 @@ void setup()
 {
   Serial.begin(9600); // serial start for help print to console
   delay(10);
+  pinMode(LED_BUILTIN, OUTPUT);
   
   connect_to_net_via_wifi();  // connet to network
  
