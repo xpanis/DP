@@ -1,12 +1,15 @@
 //----------Start of libs----------
 #include <WiFiUdp.h>
 #include <ESP8266WiFi.h>
+#include <Curve25519.h>
 //----------End of libs----------
 
 
 
 //----------Start of define----------
 #define Light 14 // on Arduino UNO PIN 13 -> Wemos declarate as 14 - WEIRD :D
+#define port_pc 4444 //default port pc listen on
+#define debug false  //true if debging.... false if correct program
 //----------End of define----------
 
 
@@ -24,6 +27,8 @@ int remote_port;
 byte packet_buffer[UDP_TX_PACKET_MAX_SIZE]; //buffer to hold incoming packet
 byte my_array[10]={-1,0,1,150,254,255,256,257,350,720};
 byte ack_msg[6]={0,2,0,0,10,10};
+uint8_t state_of_device = 0;
+byte *temp_msg;
 //----------End of network settings----------
 
 
@@ -35,9 +40,10 @@ char reply_err_msg[] = "err msg, not identify type of msg";       // err msg
 
 
 //----------Start of cypher and shared secret----------
-char auth_code[3] = "kp";  //special code for each device size of 2B
-char public_key[33] = "TearcyojIbPetjut6Ossyakgetafwij6";
-char private_key[33] = "FroneedbosghefmygNoghWyljirteirj";
+uint8_t auth_code[2] = {23,138};  //special code for each device size of 2B
+uint8_t public_key[32];
+uint8_t private_key[32];
+uint8_t shared_secret[32];
 //----------End of cypher and shared secret----------
 
 
@@ -56,9 +62,11 @@ void change_light_state(byte state);
 void command_func();
 int checksum_check();
 int convert_byte_to_int(byte data[], byte start_index, byte data_size);
+void alocate_msg_mem(byte **mem, uint8_t size_of_mem);
+void convert_number_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t number_size, long number);
 //----------End of function declaration----------
 
-
+int incomingByte = 0; 
 
 //----------Start of CODE----------
 void connect_to_net_via_wifi()
@@ -93,6 +101,103 @@ int convert_byte_to_int(byte data[], byte start_index, byte data_size)
 
 
 
+void convert_number_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t number_size, long number)
+{
+  uint8_t size_of_temp_array = 1;
+  long temp_number = number;
+  
+  while (temp_number >= 256)
+  {
+    size_of_temp_array++;
+    temp_number = temp_number >> 8;
+  }
+
+  /*Serial.print("Number: ");
+  Serial.println(number);
+  
+  Serial.print("Min size of number: ");
+  Serial.println(size_of_temp_array);
+
+  Serial.print("You choice number size: ");
+  Serial.println(number_size);*/
+
+  if (number_size >= size_of_temp_array)
+  {
+    //byte * temp_array = (byte *) malloc(number_size * sizeof(byte));
+    temp_number = number;
+    long divider = 1;
+    for (int i = 0; i < (number_size - 1); i++)
+    {
+      divider = divider << 8;
+    }
+    
+    for (int i = start_index; i < (start_index + number_size); i++)
+    {
+      data_array[i] = number / divider;
+      /*Serial.print("Na poziciu: ");
+      Serial.print(i);
+      Serial.print(" ide cislo: ");
+      Serial.println(data_array[i]);*/
+      
+      temp_number = data_array[i] * divider;
+      number = number - temp_number;
+      divider = divider >> 8;  
+    }
+  }
+  else
+    Serial.println("Cislo sa nezmesti do danych policok");
+  //Serial.println("***********");
+}
+
+
+
+void fill_msg(byte *msg, uint8_t size_of_msg, uint8_t type_of_msg)
+{
+  type_of_msg = 0; //temp is all created mgs register
+  switch(type_of_msg)
+    {
+     case 0 :
+        //register_response_func(); // create register msg
+        break;
+     case 2 :
+        //acknowledgement_func();
+        break;
+     case 3 :
+        //not_acknowledgement_func();
+        break;
+     case 4 :
+        //authentication_func();
+        break;
+     case 6 :
+        //command_func();
+        break;
+     case 7 :
+        //status_func();
+        break;
+     case 8 :
+        //finish_func();
+        break;
+     default :
+     ;
+    }
+}
+
+
+
+void alocate_msg_mem(byte **mem, uint8_t size_of_mem)
+{
+  *mem = NULL;
+  *mem = (byte *) malloc(size_of_mem * sizeof(byte));
+
+ if(*mem == NULL)
+  {
+      free(*mem);
+      Serial.println("Erro of allocation!");
+  }
+}
+
+
+
 void sensors_and_actuators_init()
 {
   pinMode(Light, OUTPUT);
@@ -112,9 +217,43 @@ void change_light_state(byte state)
 
 void reg_and_auth()
 {
-  Serial.println("Start of reg and auth");
-  // code of reg and auth of whole device to gateway
-  Serial.println("End of reg and auth");
+  /*switch(state_of_device)
+    {
+     case 0 :
+        //register_response_func();
+        break;
+     case 2 :
+        //acknowledgement_func();
+        break;
+     case 3 :
+        //not_acknowledgement_func();
+        break;
+     case 4 :
+        //authentication_func();
+        break;
+     case 6 :
+        //command_func();
+        break;
+     case 7 :
+        //status_func();
+        break;
+     case 8 :
+        //finish_func();
+        break;
+     default :
+     ;
+    }*/
+  Serial.println("Start of generating keys");
+  //Curve25519::dh1(public_key, private_key); //generation of private and public key for DFH - ERROR when CURVE generate
+  Serial.println("End of generating keys");
+
+  alocate_msg_mem(&temp_msg, 38);
+  convert_number_to_array_on_position(temp_msg, 0, 2, 0);
+  
+  // fill of temp_msg
+  Serial.println("START send register");
+  send_udp_msg(ip_pc, port_pc, temp_msg, 38); // send of registration packet
+  Serial.println("END send register");
 }
 
 
@@ -247,8 +386,9 @@ void setup()
 {
   Serial.begin(9600); // serial start for help print to console
   delay(10);
-  pinMode(LED_BUILTIN, OUTPUT);
-  
+
+  if (!debug)
+  {
   connect_to_net_via_wifi();  // connet to network
  
   udp.begin(localPort); // listen on port
@@ -256,27 +396,42 @@ void setup()
 
   sensors_and_actuators_init();  // initial of modules - sensors, actuators
   reg_and_auth(); // registration of whole device to gateway
+  }
+  else
+  {
+  //alocate_msg_mem(&temp_msg, 38);
+  //convert_number_to_array_on_position(temp_msg, 0, 2, 7);
+  
+  //convert_number_to_array_on_position(temp_msg, 5, 3, 31545); // test code here
+  }
 }
 
 
 
 void loop()
 {
+  if (!debug)
+  {
   // start time for addition code e.g. call of funcion on relay, lamp, door lock
   Serial.println("Zaciatok cakania");
   delay(10000);
   Serial.println("Koniec cakania");
   // end time for addition code
 
-  while (1) // listening UDP packets - commands, status and special calls and execution
-  {
-    packetSize = udp.parsePacket();
-    if (packetSize) // if UDP packets come
+    while (1) // listening UDP packets - commands, status and special calls and execution
     {
-      parse_packet();
+      packetSize = udp.parsePacket();
+      if (packetSize) // if UDP packets come
+      {
+        parse_packet();
+      }
+      else
+        break;
     }
-    else
-      break;
+  }
+  else
+  {
+  //test
   }
 }
 //----------End of CODE----------
