@@ -1,7 +1,7 @@
 //----------Start of libs----------
 #include <WiFiUdp.h>
 #include <ESP8266WiFi.h>
-#include <Curve25519.h>
+//#include <Curve25519.h>
 //----------End of libs----------
 
 
@@ -29,19 +29,21 @@ byte my_array[10]={-1,0,1,150,254,255,256,257,350,720};
 byte ack_msg[6]={0,2,0,0,10,10};
 uint8_t state_of_device = 0;
 byte *temp_msg;
+uint8_t flag_of_success_reg_auth = 1;
 //----------End of network settings----------
 
 
 
 //----------Start of prepared msg----------
 char reply_err_msg[] = "err msg, not identify type of msg";       // err msg
+byte bytes[] = { 1, 2, 3, 4, 6 };
 //----------End of prepared msg----------
 
 
 
 //----------Start of cypher and shared secret----------
 uint8_t auth_code[2] = {23,138};  //special code for each device size of 2B
-uint8_t public_key[32];
+uint8_t public_key[32] = {49, 88, 73, 9, 0, 0, 66, 94, 87, 92, 50, 228, 9, 77, 8, 33, 2, 82, 5, 7, 3, 80, 39, 51, 8, 3, 0, 126, 37, 84, 3, 51};
 uint8_t private_key[32];
 uint8_t shared_secret[32];
 //----------End of cypher and shared secret----------
@@ -64,6 +66,7 @@ int checksum_check();
 int convert_byte_to_int(byte data[], byte start_index, byte data_size);
 void alocate_msg_mem(byte **mem, uint8_t size_of_mem);
 void convert_number_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t number_size, long number);
+void convert_array_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t input_data_size, byte * input_data);
 //----------End of function declaration----------
 
 int incomingByte = 0; 
@@ -150,6 +153,19 @@ void convert_number_to_array_on_position(byte * data_array, uint8_t start_index,
 }
 
 
+void convert_array_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t input_data_size, byte * input_data)
+{
+  int j = 0;
+  for (int i= start_index; i < (start_index + input_data_size); i++)
+  {
+    //Serial.print("zapis cisla: ");
+    //Serial.println(input_data[j]);
+    convert_number_to_array_on_position(data_array, i, 1, input_data[j]);
+    j++;
+  }
+}
+
+
 
 void fill_msg(byte *msg, uint8_t size_of_msg, uint8_t type_of_msg)
 {
@@ -217,43 +233,48 @@ void change_light_state(byte state)
 
 void reg_and_auth()
 {
-  /*switch(state_of_device)
-    {
-     case 0 :
-        //register_response_func();
-        break;
-     case 2 :
-        //acknowledgement_func();
-        break;
-     case 3 :
-        //not_acknowledgement_func();
-        break;
-     case 4 :
-        //authentication_func();
-        break;
-     case 6 :
-        //command_func();
-        break;
-     case 7 :
-        //status_func();
-        break;
-     case 8 :
-        //finish_func();
-        break;
-     default :
-     ;
-    }*/
-  Serial.println("Start of generating keys");
-  //Curve25519::dh1(public_key, private_key); //generation of private and public key for DFH - ERROR when CURVE generate
-  Serial.println("End of generating keys");
-
-  alocate_msg_mem(&temp_msg, 38);
-  convert_number_to_array_on_position(temp_msg, 0, 2, 0);
-  
-  // fill of temp_msg
-  Serial.println("START send register");
-  send_udp_msg(ip_pc, port_pc, temp_msg, 38); // send of registration packet
-  Serial.println("END send register");
+  while (flag_of_success_reg_auth)
+  {
+    switch(state_of_device)
+      {
+       case 0 : //send register msg
+          Serial.println("Start of generating keys");
+          //Curve25519::dh1(public_key, private_key); //generation of private and public key for DFH - ERROR when CURVE generate
+          Serial.println("End of generating keys");
+          
+          alocate_msg_mem(&temp_msg, 38);
+          convert_number_to_array_on_position(temp_msg, 0, 2, 0); //set msg type 0
+          convert_number_to_array_on_position(temp_msg, 2, 2, 5); //set seq_numbe into msg
+          convert_array_to_array_on_position(temp_msg, 4, sizeof(public_key), public_key); //set public key into msg
+          convert_number_to_array_on_position(temp_msg, 36, 2, 9); //set checksum into msg
+          send_udp_msg(ip_pc, port_pc, temp_msg, 38); // send of registration packet
+          state_of_device++;
+          break;
+       case 1 :
+          //wait 5 sec for public key of server, if not come set case 0
+          state_of_device++;
+          break;
+       case 2 :
+          //not_acknowledgement_func();
+          state_of_device++;
+          break;
+       case 3 :
+          //authentication_func();
+          state_of_device++;
+          break;
+       case 4 :
+          //command_func();
+          state_of_device++;
+          break;
+       case 5 :
+          //status_func();
+          state_of_device++;
+          flag_of_success_reg_auth = 0;
+          break;
+       default :
+          break;
+      }
+  }
 }
 
 
@@ -396,13 +417,15 @@ void setup()
 
   sensors_and_actuators_init();  // initial of modules - sensors, actuators
   reg_and_auth(); // registration of whole device to gateway
+  Serial.println("Koniec reg_and auth");
   }
   else
   {
-  //alocate_msg_mem(&temp_msg, 38);
-  //convert_number_to_array_on_position(temp_msg, 0, 2, 7);
-  
-  //convert_number_to_array_on_position(temp_msg, 5, 3, 31545); // test code here
+  /*alocate_msg_mem(&temp_msg, 38);
+  convert_number_to_array_on_position(temp_msg, 0, 2, 0); //set msg type 0
+  convert_number_to_array_on_position(temp_msg, 2, 2, 5); //set seq_numbe into msg
+  convert_array_to_array_on_position(temp_msg, 4, sizeof(public_key), public_key); //set public key into msg
+  convert_number_to_array_on_position(temp_msg, 36, 2, 9); //set checksum into msg*/
   }
 }
 
