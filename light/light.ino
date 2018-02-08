@@ -30,13 +30,13 @@ byte ack_msg[6]={0,2,0,0,10,10};
 uint8_t state_of_device = 0;
 byte *temp_msg;
 uint8_t flag_of_success_reg_auth = 1;
+byte have_gateway_pub_key = false;
 //----------End of network settings----------
 
 
 
 //----------Start of prepared msg----------
 char reply_err_msg[] = "err msg, not identify type of msg";       // err msg
-byte bytes[] = { 1, 2, 3, 4, 6 };
 //----------End of prepared msg----------
 
 
@@ -56,7 +56,7 @@ void sensors_and_actuators_init();
 void reg_and_auth();
 byte identify_packet();
 void print_general_info();
-int parse_packet();
+int parse_packet(byte type_of_packet_to_parse);
 void send_udp_msg(IPAddress dst_ip, int dst_port, char *msg);
 void send_udp_msg(IPAddress dst_ip, int dst_port, byte msg[], byte size_of_msg);
 void default_func();
@@ -238,6 +238,7 @@ void reg_and_auth()
     switch(state_of_device)
       {
        case 0 : //send register msg
+       {
           Serial.println("Start of generating keys");
           //Curve25519::dh1(public_key, private_key); //generation of private and public key for DFH - ERROR when CURVE generate
           Serial.println("End of generating keys");
@@ -250,10 +251,41 @@ void reg_and_auth()
           send_udp_msg(ip_pc, port_pc, temp_msg, 38); // send of registration packet
           state_of_device++;
           break;
-       case 1 :
-          //wait 5 sec for public key of server, if not come set case 0
-          state_of_device++;
+       }
+       case 1 : //wait for public key from server
+       {
+          uint8_t wait_times = 0;
+          uint8_t cancel_flag = 0;
+          while (!cancel_flag) // listening UDP register_response packets
+          {
+            packetSize = udp.parsePacket();
+            if (packetSize) // if UDP packets come
+            {
+              parse_packet(1);
+              if (have_gateway_pub_key)
+                {
+                  state_of_device++;
+                  cancel_flag = 1;
+                }
+                else
+                  Serial.println("Come wrong packet - not register response");
+            }
+            else
+            {
+              if (wait_times < 10)  //wait 5 sec for public key of server, if not come set case 0
+              {
+                delay(500);
+                wait_times++;
+              }
+              else  // in 5 sec after register not came register response -> packet lost -> send new register msf
+              {
+                state_of_device = 0; //repeat whole - case 0
+                cancel_flag = 1;
+              }
+            }
+          }
           break;
+       }
        case 2 :
           //not_acknowledgement_func();
           state_of_device++;
@@ -272,7 +304,7 @@ void reg_and_auth()
           flag_of_success_reg_auth = 0;
           break;
        default :
-          break;
+       ;
       }
   }
 }
@@ -325,7 +357,7 @@ void print_general_info()
 
 
 
-int parse_packet()
+int parse_packet(byte type_of_packet_to_parse) // 0 - for all
 {
   remote_ip = udp.remoteIP(); // read the packet remote IP
   remote_port = udp.remotePort(); // read the packet remote port
@@ -334,31 +366,40 @@ int parse_packet()
 
   if (checksum_check())
   {
-    switch(identify_packet())
+    int parse_permition = identify_packet();
+    if ((type_of_packet_to_parse == 0) || (type_of_packet_to_parse == parse_permition))
+    {    
+      switch(parse_permition)
+      {
+       case 1 :
+          //register_response_func();
+          have_gateway_pub_key = true;
+          break;
+       case 2 :
+          //acknowledgement_func();
+          break;
+       case 3 :
+          //not_acknowledgement_func();
+          break;
+       case 4 :
+          //authentication_func();
+          break;
+       case 6 :
+          command_func();
+          break;
+       case 7 :
+          //status_func();
+          break;
+       case 8 :
+          //finish_func();
+          break;
+       default :
+       default_func();
+      }
+    }
+    else
     {
-     case 1 :
-        //register_response_func();
-        break;
-     case 2 :
-        //acknowledgement_func();
-        break;
-     case 3 :
-        //not_acknowledgement_func();
-        break;
-     case 4 :
-        //authentication_func();
-        break;
-     case 6 :
-        command_func();
-        break;
-     case 7 :
-        //status_func();
-        break;
-     case 8 :
-        //finish_func();
-        break;
-     default :
-     default_func();
+      Serial.println("Invalid permission for parse packet!");
     }
   }
   else
@@ -446,7 +487,7 @@ void loop()
       packetSize = udp.parsePacket();
       if (packetSize) // if UDP packets come
       {
-        parse_packet();
+        parse_packet(0);
       }
       else
         break;
