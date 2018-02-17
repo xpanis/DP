@@ -1,7 +1,7 @@
 //----------Start of libs----------
 #include <WiFiUdp.h>
 #include <ESP8266WiFi.h>
-//#include <Curve25519.h>
+#include <Curve25519.h>
 //----------End of libs----------
 
 
@@ -9,7 +9,7 @@
 //----------Start of define----------
 #define Light 14 // on Arduino UNO PIN 13 -> Wemos declarate as 14 - WEIRD :D
 #define port_pc 4444 //default port pc listen on
-#define debug false  //true if debging.... false if correct program
+#define debug true  //true if debging.... false if correct program
 //----------End of define----------
 
 
@@ -462,6 +462,88 @@ void setup()
   }
   else
   {
+    Serial.println("1");
+    uint8_t f1[32];
+    uint8_t k1[32];
+    
+    uint8_t f2[32];
+    uint8_t k2[32];
+    Serial.println("2");
+
+    Curve25519::dh1(k1, f1);
+    Serial.println("3");
+    Curve25519::dh1(k2, f2);
+    Serial.println("4");
+  
+    
+    Serial.println("Verejny kluc K1");
+    for (int i = 0; i<32; i++)
+    {
+      Serial.print(k1[i]);
+    }
+    Serial.println("");
+  
+    Serial.println("Sukromny kluc F1");
+    for (int i = 0; i<32; i++)
+    {
+      Serial.print(f1[i]);
+    }
+    Serial.println("");
+  
+    
+    Serial.println("Verejny kluc 21");
+    for (int i = 0; i<32; i++)
+    {
+      Serial.print(k2[i]);
+    }
+    Serial.println("");
+  
+    Serial.println("Sukromny kluc F2");
+    for (int i = 0; i<32; i++)
+    {
+      Serial.print(f2[i]);
+    }
+    Serial.println("");
+    
+    Serial.println("5");
+    Curve25519::dh2(k2, f1);
+    Serial.println("6");
+    Curve25519::dh2(k1, f2);
+    Serial.println("7");
+  
+    Serial.println("Tajomstvo 1");
+    for (int i = 0; i<32; i++)
+    {
+      Serial.print(k2[i]);
+    }
+    Serial.println("");
+  
+    Serial.println("Tajomstvo 2");
+    for (int i = 0; i<32; i++)
+    {
+      Serial.print(k1[i]);
+    }
+    Serial.println("");
+  
+    int i = 0;
+    bool flag = true;
+  
+    while (i < 32)
+    {
+      if (k1[i] != k2[i])
+        flag = false;
+      if (!flag)
+        break;
+      i++;
+    }
+  
+    Serial.println(i);
+  
+    if (i == 32)
+      Serial.println("Zdielane tajomstva sa Zhoduju!");
+    else
+      Serial.println("Zdielane tajomstva sa NEzhoduju!");
+    
   /*alocate_msg_mem(&temp_msg, 38);
   convert_number_to_array_on_position(temp_msg, 0, 2, 0); //set msg type 0
   convert_number_to_array_on_position(temp_msg, 2, 2, 5); //set seq_numbe into msg
