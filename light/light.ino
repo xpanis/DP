@@ -9,7 +9,7 @@
 //----------Start of define----------
 #define Light 14 // on Arduino UNO PIN 13 -> Wemos declarate as 14 - WEIRD :D
 #define port_pc 4444 //default port pc listen on
-#define debug true  //true if debging.... false if correct program
+#define debug false  //true if debging.... false if correct program
 //----------End of define----------
 
 
@@ -43,9 +43,9 @@ char reply_err_msg[] = "err msg, not identify type of msg";       // err msg
 
 //----------Start of cypher and shared secret----------
 uint8_t auth_code[2] = {23,138};  //special code for each device size of 2B
-uint8_t public_key[32] = {49, 88, 73, 9, 0, 0, 66, 94, 87, 92, 50, 228, 9, 77, 8, 33, 2, 82, 5, 7, 3, 80, 39, 51, 8, 3, 0, 126, 37, 84, 3, 51};
+uint8_t public_key_of_arduino[32]; // = {49, 88, 73, 9, 0, 0, 66, 94, 87, 92, 50, 228, 9, 77, 8, 33, 2, 82, 5, 7, 3, 80, 39, 51, 8, 3, 0, 126, 37, 84, 3, 51};
+uint8_t * public_key_of_server_or_ssecret;
 uint8_t private_key[32];
-uint8_t shared_secret[32];
 //----------End of cypher and shared secret----------
 
 
@@ -67,6 +67,7 @@ int convert_byte_to_int(byte data[], byte start_index, byte data_size);
 void alocate_msg_mem(byte **mem, uint8_t size_of_mem);
 void convert_number_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t number_size, long number);
 void convert_array_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t input_data_size, byte * input_data);
+uint8_t * convert_array_of_bytes_to_array(byte data[], byte start_index, byte data_size);
 //----------End of function declaration----------
 
 int incomingByte = 0; 
@@ -85,8 +86,22 @@ void connect_to_net_via_wifi()
 }
 
 
+uint8_t * convert_array_of_bytes_to_array(byte data[], byte start_index, byte data_size) //get array from MSG array to arduino
+{
+  uint8_t * ret_array;
+  ret_array = NULL;
+  alocate_msg_mem(&ret_array, data_size);
+  int j = start_index;
+  for (int i = 0; i <  data_size; i++)
+  {
+    ret_array[i] = data[j];
+    j++;
+  }  
+  return ret_array;
+}
 
-int convert_byte_to_int(byte data[], byte start_index, byte data_size)
+
+int convert_byte_to_int(byte data[], byte start_index, byte data_size) //get number from MSG array to arduino
 {
     int result = 0;
     for (byte i = 0; i < data_size; i++)
@@ -104,7 +119,7 @@ int convert_byte_to_int(byte data[], byte start_index, byte data_size)
 
 
 
-void convert_number_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t number_size, long number)
+void convert_number_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t number_size, long number) //set number from arduino to MSG array
 {
   uint8_t size_of_temp_array = 1;
   long temp_number = number;
@@ -153,7 +168,7 @@ void convert_number_to_array_on_position(byte * data_array, uint8_t start_index,
 }
 
 
-void convert_array_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t input_data_size, byte * input_data)
+void convert_array_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t input_data_size, byte * input_data) //set array from arduino to MSG array
 {
   int j = 0;
   for (int i= start_index; i < (start_index + input_data_size); i++)
@@ -240,14 +255,14 @@ void reg_and_auth()
        case 0 : //send register msg
        {
           Serial.println("Start of generating keys");
-          //Curve25519::dh1(public_key, private_key); //generation of private and public key for DFH - ERROR when CURVE generate
+          Curve25519::dh1(public_key_of_arduino, private_key); //generation of private and public key for DFH - ERROR when CURVE generate - works NOW
           Serial.println("End of generating keys");
           
           alocate_msg_mem(&temp_msg, 38);
           convert_number_to_array_on_position(temp_msg, 0, 2, 0); //set msg type 0
-          convert_number_to_array_on_position(temp_msg, 2, 2, 5); //set seq_numbe into msg
-          convert_array_to_array_on_position(temp_msg, 4, sizeof(public_key), public_key); //set public key into msg
-          convert_number_to_array_on_position(temp_msg, 36, 2, 9); //set checksum into msg
+          convert_number_to_array_on_position(temp_msg, 2, 2, 1); //set seq_numbe into msg
+          convert_array_to_array_on_position(temp_msg, 4, sizeof(public_key_of_arduino), public_key_of_arduino); //set public key into msg
+          convert_number_to_array_on_position(temp_msg, 36, 2, 9); //set checksum into msg - USE CRC16 - to DO
           send_udp_msg(ip_pc, port_pc, temp_msg, 38); // send of registration packet
           state_of_device++;
           break;
@@ -264,6 +279,7 @@ void reg_and_auth()
               parse_packet(1);
               if (have_gateway_pub_key)
                 {
+                  Curve25519::dh2(public_key_of_server_or_ssecret, private_key);
                   state_of_device++;
                   cancel_flag = 1;
                 }
@@ -287,19 +303,17 @@ void reg_and_auth()
           break;
        }
        case 2 :
-          //not_acknowledgement_func();
+          send_udp_msg(remote_ip, remote_port, ack_msg, (sizeof(ack_msg))); // send ACK
           state_of_device++;
           break;
        case 3 :
-          //authentication_func();
+          //start of secret communication - auth - via shared_secret
           state_of_device++;
           break;
        case 4 :
-          //command_func();
           state_of_device++;
           break;
        case 5 :
-          //status_func();
           state_of_device++;
           flag_of_success_reg_auth = 0;
           break;
@@ -372,7 +386,8 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
       switch(parse_permition)
       {
        case 1 :
-          //register_response_func();
+          alocate_msg_mem(&public_key_of_server_or_ssecret, 32);
+          public_key_of_server_or_ssecret = convert_array_of_bytes_to_array(packet_buffer, 4, 32);
           have_gateway_pub_key = true;
           break;
        case 2 :
@@ -462,93 +477,9 @@ void setup()
   }
   else
   {
-    Serial.println("1");
-    uint8_t f1[32];
-    uint8_t k1[32];
-    
-    uint8_t f2[32];
-    uint8_t k2[32];
-    Serial.println("2");
-
-    Curve25519::dh1(k1, f1);
-    Serial.println("3");
-    Curve25519::dh1(k2, f2);
-    Serial.println("4");
-  
-    
-    Serial.println("Verejny kluc K1");
-    for (int i = 0; i<32; i++)
-    {
-      Serial.print(k1[i]);
-    }
-    Serial.println("");
-  
-    Serial.println("Sukromny kluc F1");
-    for (int i = 0; i<32; i++)
-    {
-      Serial.print(f1[i]);
-    }
-    Serial.println("");
-  
-    
-    Serial.println("Verejny kluc 21");
-    for (int i = 0; i<32; i++)
-    {
-      Serial.print(k2[i]);
-    }
-    Serial.println("");
-  
-    Serial.println("Sukromny kluc F2");
-    for (int i = 0; i<32; i++)
-    {
-      Serial.print(f2[i]);
-    }
-    Serial.println("");
-    
-    Serial.println("5");
-    Curve25519::dh2(k2, f1);
-    Serial.println("6");
-    Curve25519::dh2(k1, f2);
-    Serial.println("7");
-  
-    Serial.println("Tajomstvo 1");
-    for (int i = 0; i<32; i++)
-    {
-      Serial.print(k2[i]);
-    }
-    Serial.println("");
-  
-    Serial.println("Tajomstvo 2");
-    for (int i = 0; i<32; i++)
-    {
-      Serial.print(k1[i]);
-    }
-    Serial.println("");
-  
-    int i = 0;
-    bool flag = true;
-  
-    while (i < 32)
-    {
-      if (k1[i] != k2[i])
-        flag = false;
-      if (!flag)
-        break;
-      i++;
-    }
-  
-    Serial.println(i);
-  
-    if (i == 32)
-      Serial.println("Zdielane tajomstva sa Zhoduju!");
-    else
-      Serial.println("Zdielane tajomstva sa NEzhoduju!");
-    
-  /*alocate_msg_mem(&temp_msg, 38);
-  convert_number_to_array_on_position(temp_msg, 0, 2, 0); //set msg type 0
-  convert_number_to_array_on_position(temp_msg, 2, 2, 5); //set seq_numbe into msg
-  convert_array_to_array_on_position(temp_msg, 4, sizeof(public_key), public_key); //set public key into msg
-  convert_number_to_array_on_position(temp_msg, 36, 2, 9); //set checksum into msg*/
+    /*connect_to_net_via_wifi();  // connet to network
+    udp.begin(localPort); // listen on port
+    Serial.println("UDP listen");*/
   }
 }
 
@@ -577,6 +508,29 @@ void loop()
   }
   else
   {
+    /*while (1) // listening UDP packets - commands, status and special calls and execution
+    {
+      packetSize = udp.parsePacket();
+      if (packetSize) // if UDP packets come
+      {
+        remote_ip = udp.remoteIP(); // read the packet remote IP
+        remote_port = udp.remotePort(); // read the packet remote port
+        udp.read(packet_buffer, UDP_TX_PACKET_MAX_SIZE); // read the packet into packetBufffer
+        print_general_info();
+
+        uint8_t * test_array;
+        int size_of_array = 5;
+        alocate_msg_mem(&test_array, size_of_array);
+        test_array = convert_array_of_bytes_to_array(packet_buffer, 3, size_of_array);
+        Serial.println("Vypis:");
+        for (int i = 0; i < size_of_array; i++)
+        {
+          Serial.println(test_array[i]);
+        }
+      }
+      else
+        break;
+    }*/
   //test
   }
 }
