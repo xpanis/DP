@@ -2,6 +2,7 @@
 #include <WiFiUdp.h>
 #include <ESP8266WiFi.h>
 #include <Curve25519.h>
+#include <Speck.h>
 //----------End of libs----------
 
 
@@ -10,6 +11,7 @@
 #define Light 14 // on Arduino UNO PIN 13 -> Wemos declarate as 14 - WEIRD :D
 #define port_pc 4444 //default port pc listen on
 #define debug false  //true if debging.... false if correct program
+#define generate_dfh false  //if false -> communicate with server via define keys
 //----------End of define----------
 
 
@@ -30,22 +32,29 @@ byte ack_msg[6]={0,2,0,0,10,10};
 uint8_t state_of_device = 0;
 byte *temp_msg;
 uint8_t flag_of_success_reg_auth = 1;
-byte have_gateway_pub_key = false;
+bool have_gateway_pub_key = false;
+bool have_salt = false;
 //----------End of network settings----------
 
 
 
 //----------Start of prepared msg----------
 char reply_err_msg[] = "err msg, not identify type of msg";       // err msg
+uint8_t * deciphered_packet;
 //----------End of prepared msg----------
 
 
 
 //----------Start of cypher and shared secret----------
 uint8_t auth_code[2] = {23,138};  //special code for each device size of 2B
-uint8_t public_key_of_arduino[32]; // = {49, 88, 73, 9, 0, 0, 66, 94, 87, 92, 50, 228, 9, 77, 8, 33, 2, 82, 5, 7, 3, 80, 39, 51, 8, 3, 0, 126, 37, 84, 3, 51};
+uint8_t salt_from_server[2];
+uint8_t public_key_of_arduino[32];
 uint8_t * public_key_of_server_or_ssecret;
 uint8_t private_key[32];
+Speck speck;
+
+uint8_t fake_public_key_of_arduino[32] = {183, 213, 11, 131, 18, 199, 146, 88, 127, 147, 102, 167, 60, 161, 231, 11, 241, 151, 138, 19, 234, 41, 102, 5, 114, 12, 135, 164, 112, 135, 31, 65};
+uint8_t fake_private_key[32] = {48, 200, 162, 104, 234, 213, 194, 111, 216, 216, 248, 240, 121, 154, 62, 179, 39, 180, 217, 200, 102, 178, 43, 105, 215, 160, 96, 44, 196, 227, 42, 72};
 //----------End of cypher and shared secret----------
 
 
@@ -68,6 +77,7 @@ void alocate_msg_mem(byte **mem, uint8_t size_of_mem);
 void convert_number_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t number_size, long number);
 void convert_array_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t input_data_size, byte * input_data);
 uint8_t * convert_array_of_bytes_to_array(byte data[], byte start_index, byte data_size);
+void get_packet_to_buffer(bool need_decipher);
 //----------End of function declaration----------
 
 int incomingByte = 0; 
@@ -164,7 +174,6 @@ void convert_number_to_array_on_position(byte * data_array, uint8_t start_index,
   }
   else
     Serial.println("Cislo sa nezmesti do danych policok");
-  //Serial.println("***********");
 }
 
 
@@ -178,39 +187,6 @@ void convert_array_to_array_on_position(byte * data_array, uint8_t start_index, 
     convert_number_to_array_on_position(data_array, i, 1, input_data[j]);
     j++;
   }
-}
-
-
-
-void fill_msg(byte *msg, uint8_t size_of_msg, uint8_t type_of_msg)
-{
-  type_of_msg = 0; //temp is all created mgs register
-  switch(type_of_msg)
-    {
-     case 0 :
-        //register_response_func(); // create register msg
-        break;
-     case 2 :
-        //acknowledgement_func();
-        break;
-     case 3 :
-        //not_acknowledgement_func();
-        break;
-     case 4 :
-        //authentication_func();
-        break;
-     case 6 :
-        //command_func();
-        break;
-     case 7 :
-        //status_func();
-        break;
-     case 8 :
-        //finish_func();
-        break;
-     default :
-     ;
-    }
 }
 
 
@@ -254,10 +230,24 @@ void reg_and_auth()
       {
        case 0 : //send register msg
        {
+          Serial.println("STAV");
+          Serial.println(state_of_device);
           Serial.println("Start of generating keys");
-          Curve25519::dh1(public_key_of_arduino, private_key); //generation of private and public key for DFH - ERROR when CURVE generate - works NOW
-          Serial.println("End of generating keys");
-          
+          if (generate_dfh)
+          {
+            Serial.println("RLY generating keys");
+            Curve25519::dh1(public_key_of_arduino, private_key); //generation of private and public key for DFH - ERROR when CURVE generate - works NOW
+            
+          }
+          else
+          {
+            Serial.println("FAKE generating keys");
+            for (int i = 0; i < 32; i++)
+            {
+              public_key_of_arduino[i] = fake_public_key_of_arduino[i];
+              private_key[i] = fake_private_key[i];
+            }
+          }                   
           alocate_msg_mem(&temp_msg, 38);
           convert_number_to_array_on_position(temp_msg, 0, 2, 0); //set msg type 0
           convert_number_to_array_on_position(temp_msg, 2, 2, 1); //set seq_numbe into msg
@@ -269,6 +259,8 @@ void reg_and_auth()
        }
        case 1 : //wait for public key from server
        {
+          Serial.println("STAV");
+          Serial.println(state_of_device);
           uint8_t wait_times = 0;
           uint8_t cancel_flag = 0;
           while (!cancel_flag) // listening UDP register_response packets
@@ -276,12 +268,14 @@ void reg_and_auth()
             packetSize = udp.parsePacket();
             if (packetSize) // if UDP packets come
             {
+              get_packet_to_buffer(false);
               parse_packet(1);
               if (have_gateway_pub_key)
                 {
-                  Curve25519::dh2(public_key_of_server_or_ssecret, private_key);
+                  Curve25519::dh2(public_key_of_server_or_ssecret, private_key);                  
                   state_of_device++;
                   cancel_flag = 1;
+                  speck.setKey(public_key_of_server_or_ssecret, 32); //with calculated cipher via DFH and set Speck key
                 }
                 else
                   Serial.println("Come wrong packet - not register response");
@@ -303,17 +297,58 @@ void reg_and_auth()
           break;
        }
        case 2 :
+          Serial.println("STAV");
+          Serial.println(state_of_device);
           send_udp_msg(remote_ip, remote_port, ack_msg, (sizeof(ack_msg))); // send ACK
           state_of_device++;
           break;
-       case 3 :
+       case 3 : //wait for SALT - auth packet
           //start of secret communication - auth - via shared_secret
-          state_of_device++;
-          break;
+          {
+            Serial.println("STAV");
+            Serial.println(state_of_device);
+            uint8_t wait_times = 0;
+            uint8_t cancel_flag = 0;
+            while (!cancel_flag) // listening UDP register_response packets
+            {
+              packetSize = udp.parsePacket();
+              if (packetSize) // if UDP packets come
+              {
+                get_packet_to_buffer(true);
+                parse_packet(4);
+                if (have_salt)
+                  {
+                    state_of_device++;
+                    cancel_flag = 1;
+                  }
+                  else
+                    Serial.println("Come wrong packet - not authentification");
+              }
+              else
+              {
+                if (wait_times < 10)  //wait 5 sec for salt, if not come set case 0
+                {
+                  delay(500);
+                  wait_times++;
+                }
+                else  // in 5 sec after register not came register response -> packet lost -> send new register msf
+                {
+                  state_of_device = 0; //repeat whole - case 0
+                  cancel_flag = 1;
+                }
+              }
+            }            
+            state_of_device++;
+            break;
+          }
        case 4 :
+          Serial.println("STAV");
+          Serial.println(state_of_device);
           state_of_device++;
           break;
        case 5 :
+          Serial.println("STAV");
+          Serial.println(state_of_device);
           state_of_device++;
           flag_of_success_reg_auth = 0;
           break;
@@ -325,7 +360,7 @@ void reg_and_auth()
 
 
 
-byte identify_packet()
+byte identify_packet() //need chceck - work only with second byte!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!***********************************
 {  
   return convert_byte_to_int(packet_buffer, 0, 2); // get type of packet and return
 }
@@ -353,8 +388,7 @@ void command_func()
 void print_general_info()
 {
   Serial.print("Received packet of size ");
-  Serial.println(packetSize);
-  
+  Serial.println(packetSize);  
   Serial.print("From ");
   for (int i = 0; i < 4; i++)
   {
@@ -364,23 +398,41 @@ void print_general_info()
       Serial.print(".");
     }
   }
-
   Serial.print(", port ");
   Serial.println(remote_port);
 }
 
 
 
-int parse_packet(byte type_of_packet_to_parse) // 0 - for all
+void get_packet_to_buffer(bool need_decipher)
 {
   remote_ip = udp.remoteIP(); // read the packet remote IP
   remote_port = udp.remotePort(); // read the packet remote port
   udp.read(packet_buffer, UDP_TX_PACKET_MAX_SIZE); // read the packet into packetBufffer
+
+  if (need_decipher)
+  {
+    free(deciphered_packet);
+    deciphered_packet = (uint8_t *) malloc(packetSize * sizeof(uint8_t));    
+    speck.decryptBlock(deciphered_packet, packet_buffer);    
+    for (int i = 0; i < packetSize; i++)
+    {
+      packet_buffer[i] = deciphered_packet[i];
+    }
+  }
+}
+
+
+
+int parse_packet(byte type_of_packet_to_parse) // 0 - for all
+{
   print_general_info();
 
   if (checksum_check())
   {
     int parse_permition = identify_packet();
+    //Serial.println("parse permition is: ");
+    //Serial.println(parse_permition);
     if ((type_of_packet_to_parse == 0) || (type_of_packet_to_parse == parse_permition))
     {    
       switch(parse_permition)
@@ -388,6 +440,13 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
        case 1 :
           alocate_msg_mem(&public_key_of_server_or_ssecret, 32);
           public_key_of_server_or_ssecret = convert_array_of_bytes_to_array(packet_buffer, 4, 32);
+          Serial.println("get_this_public");
+          for(int i = 0; i < 32; i++)
+          {
+            Serial.print(public_key_of_server_or_ssecret[i]);
+            Serial.print(", ");
+          }
+          Serial.print("");
           have_gateway_pub_key = true;
           break;
        case 2 :
@@ -398,6 +457,14 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
           break;
        case 4 :
           //authentication_func();
+          salt_from_server[0] = packet_buffer[4];
+          salt_from_server[1] = packet_buffer[5];
+          Serial.print("salt is: ");
+          Serial.print(salt_from_server[0]);
+          Serial.print(", ");
+          Serial.print(salt_from_server[1]);
+          Serial.println("");          
+          have_salt = true;
           break;
        case 6 :
           command_func();
@@ -477,9 +544,7 @@ void setup()
   }
   else
   {
-    /*connect_to_net_via_wifi();  // connet to network
-    udp.begin(localPort); // listen on port
-    Serial.println("UDP listen");*/
+    //test
   }
 }
 
@@ -500,6 +565,7 @@ void loop()
       packetSize = udp.parsePacket();
       if (packetSize) // if UDP packets come
       {
+        get_packet_to_buffer(false); // neskor TRUE!!!!
         parse_packet(0);
       }
       else
@@ -508,29 +574,6 @@ void loop()
   }
   else
   {
-    /*while (1) // listening UDP packets - commands, status and special calls and execution
-    {
-      packetSize = udp.parsePacket();
-      if (packetSize) // if UDP packets come
-      {
-        remote_ip = udp.remoteIP(); // read the packet remote IP
-        remote_port = udp.remotePort(); // read the packet remote port
-        udp.read(packet_buffer, UDP_TX_PACKET_MAX_SIZE); // read the packet into packetBufffer
-        print_general_info();
-
-        uint8_t * test_array;
-        int size_of_array = 5;
-        alocate_msg_mem(&test_array, size_of_array);
-        test_array = convert_array_of_bytes_to_array(packet_buffer, 3, size_of_array);
-        Serial.println("Vypis:");
-        for (int i = 0; i < size_of_array; i++)
-        {
-          Serial.println(test_array[i]);
-        }
-      }
-      else
-        break;
-    }*/
   //test
   }
 }
