@@ -3,6 +3,7 @@
 #include <ESP8266WiFi.h>
 #include <Curve25519.h>
 #include <Speck.h>
+#include <BLAKE2s.h>
 //----------End of libs----------
 
 
@@ -48,9 +49,11 @@ uint8_t * deciphered_packet;
 //----------Start of cypher and shared secret----------
 uint8_t auth_code[2] = {23,138};  //special code for each device size of 2B
 uint8_t salt_from_server[2];
+uint8_t salted_code[2];
 uint8_t public_key_of_arduino[32];
 uint8_t * public_key_of_server_or_ssecret;
 uint8_t private_key[32];
+uint8_t key_for_blake[32];
 Speck speck;
 
 uint8_t fake_public_key_of_arduino[32] = {183, 213, 11, 131, 18, 199, 146, 88, 127, 147, 102, 167, 60, 161, 231, 11, 241, 151, 138, 19, 234, 41, 102, 5, 114, 12, 135, 164, 112, 135, 31, 65};
@@ -63,7 +66,7 @@ uint8_t fake_private_key[32] = {48, 200, 162, 104, 234, 213, 194, 111, 216, 216,
 void connect_to_net_via_wifi();
 void sensors_and_actuators_init();
 void reg_and_auth();
-byte identify_packet();
+int identify_packet();
 void print_general_info();
 int parse_packet(byte type_of_packet_to_parse);
 void send_udp_msg(IPAddress dst_ip, int dst_port, char *msg);
@@ -115,15 +118,20 @@ int convert_byte_to_int(byte data[], byte start_index, byte data_size) //get num
 {
     int result = 0;
     for (byte i = 0; i < data_size; i++)
-  {
+    {
       byte pom = start_index + data_size - 1 - i;
       byte offset = 0;
-      for (byte j = 0; j < i; j++)
-      {
-          offset += 8;
-      }
-      result += data[pom] << offset;
-  }
+      
+      
+        for (byte j = 0; j < i; j++)
+        {
+            offset += 8;
+        }
+        result += (data[pom] << offset);
+    }
+  Serial.print("res is:");
+  Serial.print(result);
+  Serial.println("");
   return result;
 }
 
@@ -237,7 +245,6 @@ void reg_and_auth()
           {
             Serial.println("RLY generating keys");
             Curve25519::dh1(public_key_of_arduino, private_key); //generation of private and public key for DFH - ERROR when CURVE generate - works NOW
-            
           }
           else
           {
@@ -253,7 +260,7 @@ void reg_and_auth()
           convert_number_to_array_on_position(temp_msg, 2, 2, 1); //set seq_numbe into msg
           convert_array_to_array_on_position(temp_msg, 4, sizeof(public_key_of_arduino), public_key_of_arduino); //set public key into msg
           convert_number_to_array_on_position(temp_msg, 36, 2, 9); //set checksum into msg - USE CRC16 - to DO
-          send_udp_msg(ip_pc, port_pc, temp_msg, 38); // send of registration packet
+          send_udp_msg(ip_pc, port_pc, temp_msg, 38); // send of registration packet - REAL known port and IP
           state_of_device++;
           break;
        }
@@ -337,15 +344,50 @@ void reg_and_auth()
                   cancel_flag = 1;
                 }
               }
-            }            
-            state_of_device++;
+            }
             break;
           }
        case 4 :
-          Serial.println("STAV");
-          Serial.println(state_of_device);
-          state_of_device++;
-          break;
+          {
+            Serial.println("STAV");
+            Serial.println(state_of_device);
+            //have salt, calculate hash and send auth_response
+            
+            salted_code[0] = (auth_code[0] ^ salt_from_server[0]);
+            salted_code[1] = (auth_code[1] ^ salt_from_server[1]);
+            
+            Serial.print("Xor is: ");
+            Serial.print(salted_code[0]);
+            Serial.print(", ");
+            Serial.print(salted_code[1]);
+            Serial.println("");
+  
+            BLAKE2s blake;
+            blake.reset(key_for_blake, sizeof(key_for_blake), 32);
+            blake.update(salted_code, sizeof(salted_code));
+            uint8_t hashed_auth_code[32];
+            blake.finalize(hashed_auth_code, 32);
+  
+            Serial.print("Hash auth code is: ");
+            for (int i = 0; i < 32; i++)
+            {
+              Serial.print(hashed_auth_code[i]);
+              Serial.print(", ");
+            }
+            Serial.println("");
+
+            free(temp_msg);
+            alocate_msg_mem(&temp_msg, 38);
+            convert_number_to_array_on_position(temp_msg, 0, 2, 5); //set msg type 0
+            convert_number_to_array_on_position(temp_msg, 2, 2, 14); //set seq_numbe into msg - TO DO
+            convert_array_to_array_on_position(temp_msg, 4, sizeof(hashed_auth_code), hashed_auth_code); //set public key into msg
+            convert_number_to_array_on_position(temp_msg, 36, 2, 489); //set checksum into msg - USE CRC16 - to DO
+
+            //send_udp_msg(ip_pc, port_pc, temp_msg, 38); // send of registration packet - REAL known port and IP
+            send_udp_msg(remote_ip, remote_port, temp_msg, 38); // for test USE port chose via emulator
+            state_of_device++;
+            break;
+          }
        case 5 :
           Serial.println("STAV");
           Serial.println(state_of_device);
@@ -360,7 +402,7 @@ void reg_and_auth()
 
 
 
-byte identify_packet() //need chceck - work only with second byte!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!***********************************
+int identify_packet() //need chceck - work only with second byte!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!***********************************
 {  
   return convert_byte_to_int(packet_buffer, 0, 2); // get type of packet and return
 }
@@ -495,10 +537,19 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
 void send_udp_msg(IPAddress dst_ip, int dst_port, char *msg)
 {
    // send a reply, to the IP address and port that sent us the packet we received
+      Serial.println("idem posielat");
+      Serial.print("dest IP: ");
+      Serial.print(dst_ip);
+      Serial.println("");
+      Serial.print("dest PORT: ");
+      Serial.print(dst_port);
+      Serial.println("");
+      
       udp.beginPacket(dst_ip, dst_port);
       udp.write(msg);
       udp.endPacket();
       delay(10);
+      Serial.println("koniec posielania");
 }
 
 
@@ -506,10 +557,32 @@ void send_udp_msg(IPAddress dst_ip, int dst_port, char *msg)
 void send_udp_msg(IPAddress dst_ip, int dst_port, byte msg[], byte size_of_msg)
 {
    // send a reply, to the IP address and port that sent us the packet we received
+      Serial.println("idem posielat");
+      Serial.print("dest IP: ");
+      Serial.print(dst_ip);
+      Serial.println("");
+      Serial.print("dest PORT: ");
+      Serial.print(dst_port);
+      Serial.println("");
+      Serial.print("msg SIZE:");
+      Serial.print(size_of_msg);
+      Serial.println("");
+      
+      Serial.print("msg is:");
+      for (int i = 0; i < size_of_msg; i++)
+      {
+        Serial.print(msg[i]);
+        Serial.print(", ");
+      }
+      
+      
+      Serial.println("");
+      
       udp.beginPacket(dst_ip, dst_port);
       udp.write(msg, size_of_msg);
       udp.endPacket();
       delay(10);
+      Serial.println("koniec posielania");
 }
 
 
