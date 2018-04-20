@@ -32,6 +32,8 @@ byte my_array[10]={-1,0,1,150,254,255,256,257,350,720};
 byte ack_msg[6]={0,2,0,0,10,10};
 uint8_t state_of_device = 0;
 byte *temp_msg;
+byte *temp_msg_to_cipher;
+uint8_t * temp_msg_to_cipher_u;
 uint8_t flag_of_success_reg_auth = 1;
 bool have_gateway_pub_key = false;
 bool have_salt = false;
@@ -42,6 +44,8 @@ bool have_salt = false;
 //----------Start of prepared msg----------
 char reply_err_msg[] = "err msg, not identify type of msg";       // err msg
 uint8_t * deciphered_packet;
+uint8_t ** input_parts_of_packet;
+uint8_t ** output_parts_of_packet;
 //----------End of prepared msg----------
 
 
@@ -376,21 +380,104 @@ void reg_and_auth()
             }
             Serial.println("");
 
+            uint8_t number_of_16_u_arrays = 3;
+
             free(temp_msg);
-            alocate_msg_mem(&temp_msg, 38);
-            convert_number_to_array_on_position(temp_msg, 0, 2, 5); //set msg type 0
-            convert_number_to_array_on_position(temp_msg, 2, 2, 14); //set seq_numbe into msg - TO DO
-            convert_array_to_array_on_position(temp_msg, 4, sizeof(hashed_auth_code), hashed_auth_code); //set public key into msg
-            convert_number_to_array_on_position(temp_msg, 36, 2, 489); //set checksum into msg - USE CRC16 - to DO
+            alocate_msg_mem(&temp_msg, ((16 * number_of_16_u_arrays) + 2));
+            
+            free(temp_msg_to_cipher);
+            alocate_msg_mem(&temp_msg_to_cipher, 36);
+            
+            free(temp_msg_to_cipher_u);
+            temp_msg_to_cipher_u =  (uint8_t *) malloc(36 * sizeof(uint8_t));
+            
+            
+            input_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t));
+            output_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t));
+            for (int i = 0; i < number_of_16_u_arrays; i++)
+            {
+              input_parts_of_packet[i] = (uint8_t *) malloc(16 * sizeof(uint8_t));
+              output_parts_of_packet[i] = (uint8_t *) malloc(16 * sizeof(uint8_t));
+            }
+
+            for (int i = 0; i < number_of_16_u_arrays; i++)
+            {
+              for (int j = 0; j < 16; j++)
+              {
+                input_parts_of_packet[i][j] = 0;
+                output_parts_of_packet[i][j] = 0;
+              }
+            }          
+            
+            convert_number_to_array_on_position(temp_msg_to_cipher, 0, 2, 5); //set msg type 0
+            convert_number_to_array_on_position(temp_msg_to_cipher, 2, 2, 14); //set seq_numbe into msg - TO DO
+            convert_array_to_array_on_position(temp_msg_to_cipher, 4, sizeof(hashed_auth_code), hashed_auth_code); //set public key into msg
+            //get there ciphered
+
+            for (int i = 0; i < 16; i++)
+            {
+              input_parts_of_packet[0][i] = temp_msg_to_cipher[i];
+            }
+            for (int i = 16; i < 32; i++)
+            {
+              input_parts_of_packet[1][i-16] = temp_msg_to_cipher[i];
+            }
+            for (int i = 32; i < 36; i++)
+            {
+              input_parts_of_packet[2][i-32] = temp_msg_to_cipher[i];
+            }
+            
+            speck.encryptBlock(&output_parts_of_packet[0][0], &input_parts_of_packet[0][0]);
+            speck.encryptBlock(&output_parts_of_packet[1][0], &input_parts_of_packet[1][0]);
+            speck.encryptBlock(&output_parts_of_packet[2][0], &input_parts_of_packet[2][0]);
+
+            Serial.println("Zafirovane po castiach: ");
+            for (int i = 0; i < 16; i++)
+            {
+              Serial.print(output_parts_of_packet[0][i]);
+              Serial.print(", ");
+            }
+            Serial.println("");
+            for (int i = 0; i < 16; i++)
+            {
+              Serial.print(output_parts_of_packet[1][i]);
+              Serial.print(", ");
+            }
+            Serial.println("");
+            for (int i = 0; i < 16; i++)
+            {
+              Serial.print(output_parts_of_packet[2][i]);
+              Serial.print(", ");
+            }
+            Serial.println("");
+
+            for (int i = 0; i < 16; i++)
+            {
+              temp_msg[i] = output_parts_of_packet[0][i];
+            }
+            for (int i = 16; i < 32; i++)
+            {
+              temp_msg[i] = output_parts_of_packet[1][i-16];
+            }
+            for (int i = 32; i < 48; i++)
+            {
+              temp_msg[i] = output_parts_of_packet[2][i-32];
+            }
+            free(input_parts_of_packet);
+            free(output_parts_of_packet);
+
+            //calc checksum - TO DO
+            convert_number_to_array_on_position(temp_msg, (number_of_16_u_arrays * 16), 2, 489); //set checksum into msg - USE CRC16 - to DO
 
             //send_udp_msg(ip_pc, port_pc, temp_msg, 38); // send of registration packet - REAL known port and IP
-            send_udp_msg(remote_ip, remote_port, temp_msg, 38); // for test USE port chose via emulator
+            send_udp_msg(remote_ip, remote_port, temp_msg, ((number_of_16_u_arrays * 16) + 2)); // for test USE port chose via emulator
             state_of_device++;
             break;
           }
        case 5 :
           Serial.println("STAV");
           Serial.println(state_of_device);
+          //wait for acknoladge / notack
           state_of_device++;
           flag_of_success_reg_auth = 0;
           break;
