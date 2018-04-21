@@ -85,6 +85,8 @@ void convert_number_to_array_on_position(byte * data_array, uint8_t start_index,
 void convert_array_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t input_data_size, byte * input_data);
 uint8_t * convert_array_of_bytes_to_array(byte data[], byte start_index, byte data_size);
 void get_packet_to_buffer(bool need_decipher);
+uint16_t sum_calc(uint16_t lenght, uint16_t * input);
+uint16_t * packet_to_checksum;
 //----------End of function declaration----------
 
 int incomingByte = 0; 
@@ -101,6 +103,28 @@ void connect_to_net_via_wifi()
   Serial.println("");
   Serial.println("WiFi connected");
 }
+
+
+
+uint16_t sum_calc(uint16_t lenght, uint16_t * input)
+{
+  uint16_t word16 = 0;
+  uint32_t sum = 0;
+  
+  for (uint16_t i = 0; i < lenght; i = i + 2)
+  {
+    word16 =(((input[i]<<8)&0xFF00) + (input[i+1]&0xFF));
+    sum = sum + (uint32_t) word16;
+  }
+  while (sum>>16)
+  {
+    sum = (sum & 0xFFFF)+(sum >> 16);
+  }
+  
+sum = ~sum;
+return ((uint16_t) sum);
+}
+
 
 
 uint8_t * convert_array_of_bytes_to_array(byte data[], byte start_index, byte data_size) //get array from MSG array to arduino
@@ -242,9 +266,6 @@ void reg_and_auth()
       {
        case 0 : //send register msg
        {
-          Serial.println("STAV");
-          Serial.println(state_of_device);
-          Serial.println("Start of generating keys");
           if (generate_dfh)
           {
             Serial.println("RLY generating keys");
@@ -258,20 +279,28 @@ void reg_and_auth()
               public_key_of_arduino[i] = fake_public_key_of_arduino[i];
               private_key[i] = fake_private_key[i];
             }
-          }                   
-          alocate_msg_mem(&temp_msg, 38);
+          }
+          
+          int lenght_of_packet = 36;
+          packet_to_checksum =  (uint16_t *) malloc(lenght_of_packet * sizeof(uint16_t));
+          alocate_msg_mem(&temp_msg, (lenght_of_packet + 2));
           convert_number_to_array_on_position(temp_msg, 0, 2, 0); //set msg type 0
-          convert_number_to_array_on_position(temp_msg, 2, 2, 1); //set seq_numbe into msg
+          convert_number_to_array_on_position(temp_msg, 2, 2, 1); //set seq_numbe into msg - TO DO!!!!!!!!!!!!!!!!!!!!!!!!!
           convert_array_to_array_on_position(temp_msg, 4, sizeof(public_key_of_arduino), public_key_of_arduino); //set public key into msg
-          convert_number_to_array_on_position(temp_msg, 36, 2, 9); //set checksum into msg - USE CRC16 - to DO
-          send_udp_msg(ip_pc, port_pc, temp_msg, 38); // send of registration packet - REAL known port and IP
+          for (int i = 0; i < lenght_of_packet; i++)
+          {
+            packet_to_checksum[i] = (uint16_t) temp_msg[i];
+          }
+          uint16_t checksum = sum_calc(lenght_of_packet, packet_to_checksum);
+          free(packet_to_checksum);
+          convert_number_to_array_on_position(temp_msg, lenght_of_packet, 2, (long) checksum); //set checksum into msg - USE CRC16 - to DO
+          send_udp_msg(ip_pc, port_pc, temp_msg, (lenght_of_packet + 2)); // send of registration packet - REAL known port and IP
+          free(temp_msg);
           state_of_device++;
           break;
        }
        case 1 : //wait for public key from server
        {
-          Serial.println("STAV");
-          Serial.println(state_of_device);
           uint8_t wait_times = 0;
           uint8_t cancel_flag = 0;
           while (!cancel_flag) // listening UDP register_response packets
@@ -308,78 +337,67 @@ void reg_and_auth()
           break;
        }
        case 2 :
-          Serial.println("STAV");
-          Serial.println(state_of_device);
-          send_udp_msg(remote_ip, remote_port, ack_msg, (sizeof(ack_msg))); // send ACK
+       {
+          int lenght_of_packet = 4;
+          packet_to_checksum =  (uint16_t *) malloc(lenght_of_packet * sizeof(uint16_t));
+          alocate_msg_mem(&temp_msg, (lenght_of_packet + 2));
+          convert_number_to_array_on_position(temp_msg, 0, 2, 2); //set msg type 2
+          convert_number_to_array_on_position(temp_msg, 2, 2, 1); //set seq_numbe into msg - TO DO!!!!!!!!!!!!!!!!!!!!!!!!!
+          for (int i = 0; i < lenght_of_packet; i++)
+          {
+            packet_to_checksum[i] = (uint16_t) temp_msg[i];
+          }
+          uint16_t checksum = sum_calc(lenght_of_packet, packet_to_checksum);
+          free(packet_to_checksum);
+          convert_number_to_array_on_position(temp_msg, lenght_of_packet, 2, (long) checksum); //set checksum into msg - USE CRC16 - to DO
+          send_udp_msg(remote_ip, remote_port, temp_msg, (lenght_of_packet + 2)); // send of registration packet - REAL known port and IP
+          free(temp_msg);          
           state_of_device++;
           break;
+       }
        case 3 : //wait for SALT - auth packet
-          //start of secret communication - auth - via shared_secret
+       {
+          uint8_t wait_times = 0;
+          uint8_t cancel_flag = 0;
+          while (!cancel_flag) // listening UDP register_response packets
           {
-            Serial.println("STAV");
-            Serial.println(state_of_device);
-            uint8_t wait_times = 0;
-            uint8_t cancel_flag = 0;
-            while (!cancel_flag) // listening UDP register_response packets
+            packetSize = udp.parsePacket();
+            if (packetSize) // if UDP packets come
             {
-              packetSize = udp.parsePacket();
-              if (packetSize) // if UDP packets come
-              {
-                get_packet_to_buffer(true);
-                parse_packet(4);
-                if (have_salt)
-                  {
-                    state_of_device++;
-                    cancel_flag = 1;
-                  }
-                  else
-                    Serial.println("Come wrong packet - not authentification");
-              }
-              else
-              {
-                if (wait_times < 10)  //wait 5 sec for salt, if not come set case 0
+              get_packet_to_buffer(true);
+              parse_packet(4);
+              if (have_salt)
                 {
-                  delay(500);
-                  wait_times++;
-                }
-                else  // in 5 sec after register not came register response -> packet lost -> send new register msf
-                {
-                  state_of_device = 0; //repeat whole - case 0
+                  state_of_device++;
                   cancel_flag = 1;
                 }
+                else
+                  Serial.println("Come wrong packet - not authentification");
+            }
+            else
+            {
+              if (wait_times < 10)  //wait 5 sec for salt, if not come set case 0
+              {
+                delay(500);
+                wait_times++;
+              }
+              else  // in 5 sec after register not came register response -> packet lost -> send new register msf
+              {
+                state_of_device = 0; //repeat whole - case 0
+                cancel_flag = 1;
               }
             }
-            break;
           }
-       case 4 :
+          break;
+       }
+       case 4 : //have salt, calculate hash and send auth_response  
           {
-            Serial.println("STAV");
-            Serial.println(state_of_device);
-            //have salt, calculate hash and send auth_response
-            
-            salted_code[0] = (auth_code[0] ^ salt_from_server[0]);
-            salted_code[1] = (auth_code[1] ^ salt_from_server[1]);
-            
-            Serial.print("Xor is: ");
-            Serial.print(salted_code[0]);
-            Serial.print(", ");
-            Serial.print(salted_code[1]);
-            Serial.println("");
-  
             BLAKE2s blake;
             blake.reset(key_for_blake, sizeof(key_for_blake), 32);
             blake.update(salted_code, sizeof(salted_code));
             uint8_t hashed_auth_code[32];
             blake.finalize(hashed_auth_code, 32);
-  
-            Serial.print("Hash auth code is: ");
-            for (int i = 0; i < 32; i++)
-            {
-              Serial.print(hashed_auth_code[i]);
-              Serial.print(", ");
-            }
-            Serial.println("");
-
+            //Start of creating ciphered packet - HERE I WILL CONTINUE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             uint8_t number_of_16_u_arrays = 3;
 
             free(temp_msg);
@@ -569,13 +587,7 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
        case 1 :
           alocate_msg_mem(&public_key_of_server_or_ssecret, 32);
           public_key_of_server_or_ssecret = convert_array_of_bytes_to_array(packet_buffer, 4, 32);
-          Serial.println("get_this_public");
           for(int i = 0; i < 32; i++)
-          {
-            Serial.print(public_key_of_server_or_ssecret[i]);
-            Serial.print(", ");
-          }
-          Serial.print("");
           have_gateway_pub_key = true;
           break;
        case 2 :
@@ -588,11 +600,8 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
           //authentication_func();
           salt_from_server[0] = packet_buffer[4];
           salt_from_server[1] = packet_buffer[5];
-          Serial.print("salt is: ");
-          Serial.print(salt_from_server[0]);
-          Serial.print(", ");
-          Serial.print(salt_from_server[1]);
-          Serial.println("");          
+          salted_code[0] = (auth_code[0] ^ salt_from_server[0]);
+          salted_code[1] = (auth_code[1] ^ salt_from_server[1]);
           have_salt = true;
           break;
        case 6 :
