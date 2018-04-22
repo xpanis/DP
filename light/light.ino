@@ -312,7 +312,15 @@ void reg_and_auth()
               parse_packet(1);
               if (have_gateway_pub_key)
                 {
-                  Curve25519::dh2(public_key_of_server_or_ssecret, private_key);                  
+                  Curve25519::dh2(public_key_of_server_or_ssecret, private_key);
+                  /*Serial.println("Tajomstvo je: ");
+                  for (int i = 0; i < 32; i++)
+                  {
+                    Serial.print(public_key_of_server_or_ssecret[i]);
+                    Serial.print(", ");
+                  }
+                  Serial.println("");
+                  Serial.println("");*/    
                   state_of_device++;
                   cancel_flag = 1;
                   speck.setKey(public_key_of_server_or_ssecret, 32); //with calculated cipher via DFH and set Speck key
@@ -440,49 +448,31 @@ void reg_and_auth()
               stop_index += 16;
             }
             
-            free(temp_msg_to_cipher);
-            
+            free(temp_msg_to_cipher);            
             speck.encryptBlock(&output_parts_of_packet[0][0], &input_parts_of_packet[0][0]);
             speck.encryptBlock(&output_parts_of_packet[1][0], &input_parts_of_packet[1][0]);
             speck.encryptBlock(&output_parts_of_packet[2][0], &input_parts_of_packet[2][0]);
-
-            Serial.println("Zafirovane po castiach: ");
-            for (int i = 0; i < 16; i++)
+            index = 0;
+            stop_index = 16;
+            for (int i = 0; i < number_of_16_u_arrays; i++)
             {
-              Serial.print(output_parts_of_packet[0][i]);
-              Serial.print(", ");
+              for (; index < stop_index; index++)
+              {
+                temp_msg[index] = output_parts_of_packet[i][index - (i * 16)];
+              }
+              stop_index += 16;
             }
-            Serial.println("");
-            for (int i = 0; i < 16; i++)
-            {
-              Serial.print(output_parts_of_packet[1][i]);
-              Serial.print(", ");
-            }
-            Serial.println("");
-            for (int i = 0; i < 16; i++)
-            {
-              Serial.print(output_parts_of_packet[2][i]);
-              Serial.print(", ");
-            }
-            Serial.println("");
-
-            for (int i = 0; i < 16; i++)
-            {
-              temp_msg[i] = output_parts_of_packet[0][i];
-            }
-            for (int i = 16; i < 32; i++)
-            {
-              temp_msg[i] = output_parts_of_packet[1][i-16];
-            }
-            for (int i = 32; i < 48; i++)
-            {
-              temp_msg[i] = output_parts_of_packet[2][i-32];
-            }
-            
             free(input_parts_of_packet);
             free(output_parts_of_packet);
-            //calc checksum - TO DO
-            convert_number_to_array_on_position(temp_msg, (number_of_16_u_arrays * 16), 2, 489); //set checksum into msg - USE CRC16 - to DO
+            packet_to_checksum =  (uint16_t *) malloc((number_of_16_u_arrays * 16) * sizeof(uint16_t));
+            for (int i = 0; i < (number_of_16_u_arrays * 16); i++)
+            {
+              packet_to_checksum[i] = (uint16_t) temp_msg[i];
+            }
+            uint16_t checksum = sum_calc((number_of_16_u_arrays * 16), packet_to_checksum);
+            free(packet_to_checksum);
+            
+            convert_number_to_array_on_position(temp_msg, (number_of_16_u_arrays * 16), 2, (long) checksum); //set checksum into msg
             //send_udp_msg(ip_pc, port_pc, temp_msg, 38); // send of registration packet - REAL known port and IP
             send_udp_msg(remote_ip, remote_port, temp_msg, ((number_of_16_u_arrays * 16) + 2)); // for test USE port chose via emulator
             state_of_device++;
