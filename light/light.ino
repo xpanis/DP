@@ -33,10 +33,10 @@ byte ack_msg[6]={0,2,0,0,10,10};
 uint8_t state_of_device = 0;
 byte *temp_msg;
 byte *temp_msg_to_cipher;
-uint8_t * temp_msg_to_cipher_u;
 uint8_t flag_of_success_reg_auth = 1;
 bool have_gateway_pub_key = false;
 bool have_salt = false;
+uint8_t number_of_16_u_arrays = 0;
 //----------End of network settings----------
 
 
@@ -398,27 +398,22 @@ void reg_and_auth()
             uint8_t hashed_auth_code[32];
             blake.finalize(hashed_auth_code, 32);
             //Start of creating ciphered packet - HERE I WILL CONTINUE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-            uint8_t number_of_16_u_arrays = 3;
-
+            number_of_16_u_arrays = 3;
             free(temp_msg);
-            alocate_msg_mem(&temp_msg, ((16 * number_of_16_u_arrays) + 2));
-            
             free(temp_msg_to_cipher);
-            alocate_msg_mem(&temp_msg_to_cipher, 36);
-            
-            free(temp_msg_to_cipher_u);
-            temp_msg_to_cipher_u =  (uint8_t *) malloc(36 * sizeof(uint8_t));
-            
-            
-            input_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t));
+            free(input_parts_of_packet);
+            free(output_parts_of_packet);
+            int size_of_temp_msg_to_cipher = 36;
+            alocate_msg_mem(&temp_msg, ((16 * number_of_16_u_arrays) + 2));
+            alocate_msg_mem(&temp_msg_to_cipher, size_of_temp_msg_to_cipher); //sign of size of payload: type + seq + 32bytes of hash
+            input_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t)); //allocate x times word (16bytes block) to cipher: input + output
             output_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t));
             for (int i = 0; i < number_of_16_u_arrays; i++)
             {
               input_parts_of_packet[i] = (uint8_t *) malloc(16 * sizeof(uint8_t));
               output_parts_of_packet[i] = (uint8_t *) malloc(16 * sizeof(uint8_t));
             }
-
-            for (int i = 0; i < number_of_16_u_arrays; i++)
+            for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
             {
               for (int j = 0; j < 16; j++)
               {
@@ -427,23 +422,25 @@ void reg_and_auth()
               }
             }          
             
-            convert_number_to_array_on_position(temp_msg_to_cipher, 0, 2, 5); //set msg type 0
+            convert_number_to_array_on_position(temp_msg_to_cipher, 0, 2, 5); //set msg type 5 - auth response
             convert_number_to_array_on_position(temp_msg_to_cipher, 2, 2, 14); //set seq_numbe into msg - TO DO
             convert_array_to_array_on_position(temp_msg_to_cipher, 4, sizeof(hashed_auth_code), hashed_auth_code); //set public key into msg
-            //get there ciphered
 
-            for (int i = 0; i < 16; i++)
+            int index = 0;
+            int stop_index = 16;
+            for (int i = 0; i < number_of_16_u_arrays; i++)
             {
-              input_parts_of_packet[0][i] = temp_msg_to_cipher[i];
+              for (; index < stop_index; index++)
+              {
+                if (index < size_of_temp_msg_to_cipher)
+                {
+                  input_parts_of_packet[i][index - (i * 16)] = temp_msg_to_cipher[index];
+                }
+              }
+              stop_index += 16;
             }
-            for (int i = 16; i < 32; i++)
-            {
-              input_parts_of_packet[1][i-16] = temp_msg_to_cipher[i];
-            }
-            for (int i = 32; i < 36; i++)
-            {
-              input_parts_of_packet[2][i-32] = temp_msg_to_cipher[i];
-            }
+            
+            free(temp_msg_to_cipher);
             
             speck.encryptBlock(&output_parts_of_packet[0][0], &input_parts_of_packet[0][0]);
             speck.encryptBlock(&output_parts_of_packet[1][0], &input_parts_of_packet[1][0]);
@@ -481,12 +478,11 @@ void reg_and_auth()
             {
               temp_msg[i] = output_parts_of_packet[2][i-32];
             }
+            
             free(input_parts_of_packet);
             free(output_parts_of_packet);
-
             //calc checksum - TO DO
             convert_number_to_array_on_position(temp_msg, (number_of_16_u_arrays * 16), 2, 489); //set checksum into msg - USE CRC16 - to DO
-
             //send_udp_msg(ip_pc, port_pc, temp_msg, 38); // send of registration packet - REAL known port and IP
             send_udp_msg(remote_ip, remote_port, temp_msg, ((number_of_16_u_arrays * 16) + 2)); // for test USE port chose via emulator
             state_of_device++;
@@ -507,7 +503,7 @@ void reg_and_auth()
 
 
 
-int identify_packet() //need chceck - work only with second byte!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!***********************************
+int identify_packet() //need chceck - work only with second byte!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!*********************************** - WORKS NOW
 {  
   return convert_byte_to_int(packet_buffer, 0, 2); // get type of packet and return
 }
@@ -640,7 +636,6 @@ void send_udp_msg(IPAddress dst_ip, int dst_port, char *msg)
       Serial.print("dest PORT: ");
       Serial.print(dst_port);
       Serial.println("");
-      
       udp.beginPacket(dst_ip, dst_port);
       udp.write(msg);
       udp.endPacket();
@@ -663,17 +658,13 @@ void send_udp_msg(IPAddress dst_ip, int dst_port, byte msg[], byte size_of_msg)
       Serial.print("msg SIZE:");
       Serial.print(size_of_msg);
       Serial.println("");
-      
       Serial.print("msg is:");
       for (int i = 0; i < size_of_msg; i++)
       {
         Serial.print(msg[i]);
         Serial.print(", ");
       }
-      
-      
       Serial.println("");
-      
       udp.beginPacket(dst_ip, dst_port);
       udp.write(msg, size_of_msg);
       udp.endPacket();
