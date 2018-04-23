@@ -24,6 +24,7 @@ unsigned int localPort = 8888;      // port to listen on
 IPAddress ip_pc(192, 168, 137, 1);  // gateway
 IPAddress remote_ip;
 WiFiUDP udp;  // instance to receive a send packet via UDP
+int expected_seq_number = 0;
 int sequence_number = 0;
 int packetSize = 0;
 int remote_port;
@@ -36,9 +37,13 @@ byte *temp_msg_to_cipher;
 uint8_t flag_of_success_reg_auth = 1;
 bool have_gateway_pub_key = false;
 bool have_salt = false;
+bool come_ack = false;
+bool come_nack = false;
 uint8_t number_of_16_u_arrays = 0;
 int seq_number = 0;
 uint16_t * packet_to_checksum;
+int size_of_packet = 0;
+//int number_of_16_u_arrays = 0;
 //----------End of network settings----------
 
 
@@ -88,6 +93,8 @@ void convert_array_to_array_on_position(byte * data_array, uint8_t start_index, 
 uint8_t * convert_array_of_bytes_to_array(byte data[], byte start_index, byte data_size);
 void get_packet_to_buffer(bool need_decipher);
 uint16_t sum_calc(uint16_t lenght, uint16_t * input);
+int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bool is_crypted, int type, int seq_number);
+int number_of_words_is(int size_of_payload);
 //----------End of function declaration----------
 
 int incomingByte = 0; 
@@ -243,6 +250,134 @@ void change_light_state(byte state)
 
 
 
+int number_of_words_is(int size_of_payload)
+{
+  size_of_payload += 4;
+  int ret = 0;
+  int part = 0;
+  int rest = 0;
+
+  part = size_of_payload / 16;
+  rest = size_of_payload % 16;
+  ret = part;
+
+  if (rest > 0)
+    ret++;
+
+  return ret;
+}
+
+
+
+int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bool is_crypted, int type, int seq_number)
+{
+  int size_of_whole_packet = 0;
+  *packet_to_ret = NULL;
+  byte * msg;
+  msg = *packet_to_ret;
+  free(msg);
+  
+  if (is_crypted)
+  {
+    number_of_16_u_arrays = number_of_words_is(size_of_payload);
+    free(temp_msg_to_cipher);
+    free(input_parts_of_packet);
+    free(output_parts_of_packet);
+    int size_of_temp_msg_to_cipher = size_of_payload + 4;
+    
+    alocate_msg_mem(&msg, ((16 * number_of_16_u_arrays) + 2));
+    *packet_to_ret = msg;
+    alocate_msg_mem(&temp_msg_to_cipher, size_of_temp_msg_to_cipher); //sign of size of payload: type + seq + 32bytes of hash
+    
+    input_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t)); //allocate x times word (16bytes block) to cipher: input + output
+    output_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t));
+    for (int i = 0; i < number_of_16_u_arrays; i++)
+    {
+      input_parts_of_packet[i] = (uint8_t *) malloc(16 * sizeof(uint8_t));
+      output_parts_of_packet[i] = (uint8_t *) malloc(16 * sizeof(uint8_t));
+    }
+    for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
+    {
+      for (int j = 0; j < 16; j++)
+      {
+        input_parts_of_packet[i][j] = 0;
+        output_parts_of_packet[i][j] = 0;
+      }
+    }
+    
+    convert_number_to_array_on_position(temp_msg_to_cipher, 0, 2, type);
+    convert_number_to_array_on_position(temp_msg_to_cipher, 2, 2, (long) seq_number);
+    convert_array_to_array_on_position(temp_msg_to_cipher, 4, size_of_payload, payload); //set public key into msg
+  
+    int index = 0;
+    int stop_index = 16;
+    for (int i = 0; i < number_of_16_u_arrays; i++)
+    {
+      for (; index < stop_index; index++)
+      {
+        if (index < size_of_temp_msg_to_cipher)
+        {
+          input_parts_of_packet[i][index - (i * 16)] = temp_msg_to_cipher[index];
+        }
+      }
+      stop_index += 16;
+    }
+    
+    free(temp_msg_to_cipher);
+    speck.setKey(public_key_of_server_or_ssecret, 32); //with calculated cipher via DFH and set Speck key
+    for (int i = 0; i < number_of_16_u_arrays; i++)
+    {
+      speck.encryptBlock(&output_parts_of_packet[i][0], &input_parts_of_packet[i][0]);
+    }
+    
+    index = 0;
+    stop_index = 16;
+    for (int i = 0; i < number_of_16_u_arrays; i++)
+    {
+      for (; index < stop_index; index++)
+      {
+        msg[index] = output_parts_of_packet[i][index - (i * 16)];
+      }
+      stop_index += 16;
+    }
+    
+    free(input_parts_of_packet);
+    free(output_parts_of_packet);
+    
+    packet_to_checksum =  (uint16_t *) malloc((number_of_16_u_arrays * 16) * sizeof(uint16_t));
+    for (int i = 0; i < (number_of_16_u_arrays * 16); i++)
+    {
+      packet_to_checksum[i] = (uint16_t) msg[i];
+    }
+    uint16_t checksum = sum_calc((number_of_16_u_arrays * 16), packet_to_checksum);
+    free(packet_to_checksum);    
+    convert_number_to_array_on_position(msg, (number_of_16_u_arrays * 16), 2, (long) checksum); //set checksum into msg
+    size_of_whole_packet = (16 * number_of_16_u_arrays) + 2;
+  }
+  else
+  {
+    alocate_msg_mem(&msg, (size_of_payload + 6));
+    *packet_to_ret = msg;
+    
+    convert_number_to_array_on_position(msg, 0, 2, type);
+    convert_number_to_array_on_position(msg, 2, 2, (long) seq_number);
+    convert_array_to_array_on_position(msg, 4, size_of_payload, payload); //set public key into msg
+    
+    packet_to_checksum =  (uint16_t *) malloc((size_of_payload + 4) * sizeof(uint16_t));
+    for (int i = 0; i < (size_of_payload + 4); i++)
+    {
+      packet_to_checksum[i] = (uint16_t) msg[i];
+    }
+    uint16_t checksum = sum_calc((size_of_payload + 4), packet_to_checksum);
+    free(packet_to_checksum);    
+    convert_number_to_array_on_position(msg, (size_of_payload + 4), 2, (long) checksum); //set checksum into msg
+    size_of_whole_packet = (size_of_payload + 6);
+  }
+  return size_of_whole_packet;
+}
+
+
+
 void reg_and_auth()
 {
   while (flag_of_success_reg_auth)
@@ -253,34 +388,22 @@ void reg_and_auth()
        {
           if (generate_dfh)
           {
-            Serial.println("RLY generating keys");
-            Curve25519::dh1(public_key_of_arduino, private_key); //generation of private and public key for DFH - ERROR when CURVE generate - works NOW
+            Serial.println("RLY generating keys!");
+            Curve25519::dh1(public_key_of_arduino, private_key);
           }
           else
           {
-            Serial.println("FAKE generating keys");
+            Serial.println("FAKE generating keys!");
             for (int i = 0; i < 32; i++)
             {
               public_key_of_arduino[i] = fake_public_key_of_arduino[i];
               private_key[i] = fake_private_key[i];
             }
           }
-          
-          int lenght_of_packet = 36;
-          packet_to_checksum =  (uint16_t *) malloc(lenght_of_packet * sizeof(uint16_t));
-          alocate_msg_mem(&temp_msg, (lenght_of_packet + 2));
-          convert_number_to_array_on_position(temp_msg, 0, 2, 0); //set msg type 0
-          convert_number_to_array_on_position(temp_msg, 2, 2, 1); //set seq_numbe into msg - TO DO!!!!!!!!!!!!!!!!!!!!!!!!!
-          convert_array_to_array_on_position(temp_msg, 4, sizeof(public_key_of_arduino), public_key_of_arduino); //set public key into msg
-          for (int i = 0; i < lenght_of_packet; i++)
-          {
-            packet_to_checksum[i] = (uint16_t) temp_msg[i];
-          }
-          uint16_t checksum = sum_calc(lenght_of_packet, packet_to_checksum);
-          free(packet_to_checksum);
-          convert_number_to_array_on_position(temp_msg, lenght_of_packet, 2, (long) checksum); //set checksum into msg - USE CRC16 - to DO
-          send_udp_msg(ip_pc, port_pc, temp_msg, (lenght_of_packet + 2)); // send of registration packet - REAL known port and IP
           free(temp_msg);
+          seq_number = 1;
+          size_of_packet = create_packet(&temp_msg, public_key_of_arduino, sizeof(public_key_of_arduino), false, 0, seq_number);
+          send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet);
           state_of_device++;
           break;
        }
@@ -297,17 +420,10 @@ void reg_and_auth()
               parse_packet(1);
               if (have_gateway_pub_key)
                 {
-                  Curve25519::dh2(public_key_of_server_or_ssecret, private_key);
-                  /*Serial.println("Tajomstvo je: ");
-                  for (int i = 0; i < 32; i++)
-                  {
-                    Serial.print(public_key_of_server_or_ssecret[i]);
-                    Serial.print(", ");
-                  }
-                  Serial.println("");
-                  Serial.println("");*/    
+                  Curve25519::dh2(public_key_of_server_or_ssecret, private_key);   
                   state_of_device++;
                   cancel_flag = 1;
+                  have_gateway_pub_key = false;
                   speck.setKey(public_key_of_server_or_ssecret, 32); //with calculated cipher via DFH and set Speck key
                 }
                 else
@@ -331,20 +447,11 @@ void reg_and_auth()
        }
        case 2 :
        {
-          int lenght_of_packet = 4;
-          packet_to_checksum =  (uint16_t *) malloc(lenght_of_packet * sizeof(uint16_t));
-          alocate_msg_mem(&temp_msg, (lenght_of_packet + 2));
-          convert_number_to_array_on_position(temp_msg, 0, 2, 2); //set msg type 2
-          convert_number_to_array_on_position(temp_msg, 2, 2, 1); //set seq_numbe into msg - TO DO!!!!!!!!!!!!!!!!!!!!!!!!!
-          for (int i = 0; i < lenght_of_packet; i++)
-          {
-            packet_to_checksum[i] = (uint16_t) temp_msg[i];
-          }
-          uint16_t checksum = sum_calc(lenght_of_packet, packet_to_checksum);
-          free(packet_to_checksum);
-          convert_number_to_array_on_position(temp_msg, lenght_of_packet, 2, (long) checksum); //set checksum into msg - USE CRC16 - to DO
-          send_udp_msg(remote_ip, remote_port, temp_msg, (lenght_of_packet + 2)); // send of registration packet - REAL known port and IP
-          free(temp_msg);          
+          free(temp_msg);
+          seq_number = 1;
+          size_of_packet = create_packet(&temp_msg, NULL, 0, false, 2, seq_number);
+          send_udp_msg(remote_ip, remote_port, temp_msg, size_of_packet);
+          //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet); - The Real One
           state_of_device++;
           break;
        }
@@ -363,6 +470,7 @@ void reg_and_auth()
                 {
                   state_of_device++;
                   cancel_flag = 1;
+                  have_salt = false;
                 }
                 else
                   Serial.println("Come wrong packet - not authentification");
@@ -385,95 +493,78 @@ void reg_and_auth()
        }
        case 4 : //have salt, calculate hash and send auth_response  
           {
-            Serial.println("Idem vytvarat auth_resp");
             BLAKE2s blake;
             blake.reset(key_for_blake, sizeof(key_for_blake), 32);
             blake.update(salted_code, sizeof(salted_code));
             uint8_t hashed_auth_code[32];
             blake.finalize(hashed_auth_code, 32);
-            number_of_16_u_arrays = 3;
+
             free(temp_msg);
-            free(temp_msg_to_cipher);
-            free(input_parts_of_packet);
-            free(output_parts_of_packet);
-            int size_of_temp_msg_to_cipher = 36;
-            alocate_msg_mem(&temp_msg, ((16 * number_of_16_u_arrays) + 2));
-            alocate_msg_mem(&temp_msg_to_cipher, size_of_temp_msg_to_cipher); //sign of size of payload: type + seq + 32bytes of hash
-            input_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t)); //allocate x times word (16bytes block) to cipher: input + output
-            output_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t));
-            for (int i = 0; i < number_of_16_u_arrays; i++)
-            {
-              input_parts_of_packet[i] = (uint8_t *) malloc(16 * sizeof(uint8_t));
-              output_parts_of_packet[i] = (uint8_t *) malloc(16 * sizeof(uint8_t));
-            }
-            for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
-            {
-              for (int j = 0; j < 16; j++)
-              {
-                input_parts_of_packet[i][j] = 0;
-                output_parts_of_packet[i][j] = 0;
-              }
-            }
-            convert_number_to_array_on_position(temp_msg_to_cipher, 0, 2, 5); //set msg type 5 - auth response
             seq_number++;
-            convert_number_to_array_on_position(temp_msg_to_cipher, 2, 2, (long) seq_number); //set seq_numbe into msg - TO DO
-            convert_array_to_array_on_position(temp_msg_to_cipher, 4, sizeof(hashed_auth_code), hashed_auth_code); //set public key into msg
-            int index = 0;
-            int stop_index = 16;
-            for (int i = 0; i < number_of_16_u_arrays; i++)
-            {
-              for (; index < stop_index; index++)
-              {
-                if (index < size_of_temp_msg_to_cipher)
-                {
-                  input_parts_of_packet[i][index - (i * 16)] = temp_msg_to_cipher[index];
-                }
-              }
-              stop_index += 16;
-            }            
-            free(temp_msg_to_cipher);
-            for (int i = 0; i < number_of_16_u_arrays; i++) //not tested here
-            {
-              speck.encryptBlock(&output_parts_of_packet[i][0], &input_parts_of_packet[i][0]);
-            }
-            index = 0;
-            stop_index = 16;
-            for (int i = 0; i < number_of_16_u_arrays; i++)
-            {
-              for (; index < stop_index; index++)
-              {
-                temp_msg[index] = output_parts_of_packet[i][index - (i * 16)];
-              }
-              stop_index += 16;
-            }
-            free(input_parts_of_packet);
-            free(output_parts_of_packet);
-            packet_to_checksum =  (uint16_t *) malloc((number_of_16_u_arrays * 16) * sizeof(uint16_t));
-            for (int i = 0; i < (number_of_16_u_arrays * 16); i++)
-            {
-              packet_to_checksum[i] = (uint16_t) temp_msg[i];
-            }
-            uint16_t checksum = sum_calc((number_of_16_u_arrays * 16), packet_to_checksum);
-            free(packet_to_checksum);
-            convert_number_to_array_on_position(temp_msg, (number_of_16_u_arrays * 16), 2, (long) checksum); //set checksum into msg
-            //send_udp_msg(ip_pc, port_pc, temp_msg, 38); // send of registration packet - REAL known port and IP
-            send_udp_msg(remote_ip, remote_port, temp_msg, ((number_of_16_u_arrays * 16) + 2)); // for test USE port chose via emulator
+            size_of_packet = create_packet(&temp_msg, hashed_auth_code, sizeof(hashed_auth_code), true, 5, seq_number);
+            seq_number++;
+            expected_seq_number = seq_number;
+            send_udp_msg(remote_ip, remote_port, temp_msg, size_of_packet);
+            //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet); - The Real One
             state_of_device++;
             break;
           }
        case 5 :
-          Serial.println("STAV");
-          Serial.println(state_of_device);
-          seq_number++;
-          //seq number from packet must == seq_number;
-          //wait for acknoladge / notack
-          state_of_device++;
-          flag_of_success_reg_auth = 0;
-          break;
+          {
+            //seq number from packet must == seq_number;
+            //wait for acknoladge / notack
+            
+            uint8_t wait_times = 0;
+            uint8_t cancel_flag = 0;
+            while (!cancel_flag) // listening UDP register_response packets
+            {
+              packetSize = udp.parsePacket();
+              if (packetSize) // if UDP packets come
+              {
+                get_packet_to_buffer(false);
+                int parse_permition = identify_packet();
+                parse_packet((byte) parse_permition);
+                if (come_ack)
+                {
+                  cancel_flag = 1;
+                  flag_of_success_reg_auth = 0;
+                  come_ack = false;
+                }
+                else
+                {
+                  if (come_nack)
+                  {
+                    cancel_flag = 1;
+                    come_nack = false;
+                    state_of_device = 0;
+                  }
+                  else
+                  {
+                    Serial.println("Come wrong packet - not ack or nack");
+                  }
+                }
+              }
+              else
+              {
+                if (wait_times < 10)  //wait 5 sec for salt, if not come set case 0
+                {
+                  delay(500);
+                  wait_times++;
+                }
+                else  // in 5 sec after register not came register response -> packet lost -> send new register msf
+                {
+                  state_of_device = 0; //repeat whole - case 0
+                  cancel_flag = 1;
+                }
+              }
+            }
+            break;
+         }
        default :
        ;
       }
   }
+  Serial.println("Register and Authentication is successfull!");
 }
 
 
@@ -561,12 +652,22 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
           for(int i = 0; i < 32; i++)
           have_gateway_pub_key = true;
           break;
-       case 2 :
-          //acknowledgement_func();
+       case 2 : //acknowledgement_func();
+          {
+            if (convert_byte_to_int(packet_buffer, 2, 2) == expected_seq_number)
+            {
+              come_ack = true;
+            }
           break;
-       case 3 :
-          //not_acknowledgement_func();
+          }
+       case 3 : //not_acknowledgement_func();
+          {
+            if (convert_byte_to_int(packet_buffer, 2, 2) == expected_seq_number)
+            {
+              come_nack = true;
+            }
           break;
+          }
        case 4 :
           //authentication_func();
           salt_from_server[0] = packet_buffer[4];
