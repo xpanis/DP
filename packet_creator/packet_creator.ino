@@ -291,6 +291,27 @@ void setup() {
       Serial.print(temp_msg[i]);
       Serial.print(", ");
     }
+
+  Serial.println("");
+  Serial.println("");
+  
+  free(temp_msg);
+  size_of_packet = create_packet(&temp_msg, NULL, 0, false, 2, 59);
+  Serial.print("Packet ack: ");
+  for (int i = 0; i < size_of_packet; i++)
+    {
+      Serial.print(temp_msg[i]);
+      Serial.print(", ");
+    }
+
+  free(temp_msg);
+  size_of_packet = create_packet(&temp_msg, NULL, 0, false, 3, 59);
+  Serial.print("Packet nack: ");
+  for (int i = 0; i < size_of_packet; i++)
+    {
+      Serial.print(temp_msg[i]);
+      Serial.print(", ");
+    }
 }
 
 void loop() {
