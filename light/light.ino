@@ -37,6 +37,8 @@ uint8_t flag_of_success_reg_auth = 1;
 bool have_gateway_pub_key = false;
 bool have_salt = false;
 uint8_t number_of_16_u_arrays = 0;
+int seq_number = 0;
+uint16_t * packet_to_checksum;
 //----------End of network settings----------
 
 
@@ -86,7 +88,6 @@ void convert_array_to_array_on_position(byte * data_array, uint8_t start_index, 
 uint8_t * convert_array_of_bytes_to_array(byte data[], byte start_index, byte data_size);
 void get_packet_to_buffer(bool need_decipher);
 uint16_t sum_calc(uint16_t lenght, uint16_t * input);
-uint16_t * packet_to_checksum;
 //----------End of function declaration----------
 
 int incomingByte = 0; 
@@ -157,9 +158,6 @@ int convert_byte_to_int(byte data[], byte start_index, byte data_size) //get num
         }
         result += (data[pom] << offset);
     }
-  Serial.print("res is:");
-  Serial.print(result);
-  Serial.println("");
   return result;
 }
 
@@ -176,15 +174,6 @@ void convert_number_to_array_on_position(byte * data_array, uint8_t start_index,
     temp_number = temp_number >> 8;
   }
 
-  /*Serial.print("Number: ");
-  Serial.println(number);
-  
-  Serial.print("Min size of number: ");
-  Serial.println(size_of_temp_array);
-
-  Serial.print("You choice number size: ");
-  Serial.println(number_size);*/
-
   if (number_size >= size_of_temp_array)
   {
     //byte * temp_array = (byte *) malloc(number_size * sizeof(byte));
@@ -198,10 +187,6 @@ void convert_number_to_array_on_position(byte * data_array, uint8_t start_index,
     for (int i = start_index; i < (start_index + number_size); i++)
     {
       data_array[i] = number / divider;
-      /*Serial.print("Na poziciu: ");
-      Serial.print(i);
-      Serial.print(" ide cislo: ");
-      Serial.println(data_array[i]);*/
       
       temp_number = data_array[i] * divider;
       number = number - temp_number;
@@ -400,12 +385,12 @@ void reg_and_auth()
        }
        case 4 : //have salt, calculate hash and send auth_response  
           {
+            Serial.println("Idem vytvarat auth_resp");
             BLAKE2s blake;
             blake.reset(key_for_blake, sizeof(key_for_blake), 32);
             blake.update(salted_code, sizeof(salted_code));
             uint8_t hashed_auth_code[32];
             blake.finalize(hashed_auth_code, 32);
-            //Start of creating ciphered packet - HERE I WILL CONTINUE!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
             number_of_16_u_arrays = 3;
             free(temp_msg);
             free(temp_msg_to_cipher);
@@ -428,12 +413,11 @@ void reg_and_auth()
                 input_parts_of_packet[i][j] = 0;
                 output_parts_of_packet[i][j] = 0;
               }
-            }          
-            
+            }
             convert_number_to_array_on_position(temp_msg_to_cipher, 0, 2, 5); //set msg type 5 - auth response
-            convert_number_to_array_on_position(temp_msg_to_cipher, 2, 2, 14); //set seq_numbe into msg - TO DO
+            seq_number++;
+            convert_number_to_array_on_position(temp_msg_to_cipher, 2, 2, (long) seq_number); //set seq_numbe into msg - TO DO
             convert_array_to_array_on_position(temp_msg_to_cipher, 4, sizeof(hashed_auth_code), hashed_auth_code); //set public key into msg
-
             int index = 0;
             int stop_index = 16;
             for (int i = 0; i < number_of_16_u_arrays; i++)
@@ -446,12 +430,12 @@ void reg_and_auth()
                 }
               }
               stop_index += 16;
+            }            
+            free(temp_msg_to_cipher);
+            for (int i = 0; i < number_of_16_u_arrays; i++) //not tested here
+            {
+              speck.encryptBlock(&output_parts_of_packet[i][0], &input_parts_of_packet[i][0]);
             }
-            
-            free(temp_msg_to_cipher);            
-            speck.encryptBlock(&output_parts_of_packet[0][0], &input_parts_of_packet[0][0]);
-            speck.encryptBlock(&output_parts_of_packet[1][0], &input_parts_of_packet[1][0]);
-            speck.encryptBlock(&output_parts_of_packet[2][0], &input_parts_of_packet[2][0]);
             index = 0;
             stop_index = 16;
             for (int i = 0; i < number_of_16_u_arrays; i++)
@@ -471,7 +455,6 @@ void reg_and_auth()
             }
             uint16_t checksum = sum_calc((number_of_16_u_arrays * 16), packet_to_checksum);
             free(packet_to_checksum);
-            
             convert_number_to_array_on_position(temp_msg, (number_of_16_u_arrays * 16), 2, (long) checksum); //set checksum into msg
             //send_udp_msg(ip_pc, port_pc, temp_msg, 38); // send of registration packet - REAL known port and IP
             send_udp_msg(remote_ip, remote_port, temp_msg, ((number_of_16_u_arrays * 16) + 2)); // for test USE port chose via emulator
@@ -481,6 +464,8 @@ void reg_and_auth()
        case 5 :
           Serial.println("STAV");
           Serial.println(state_of_device);
+          seq_number++;
+          //seq number from packet must == seq_number;
           //wait for acknoladge / notack
           state_of_device++;
           flag_of_success_reg_auth = 0;
@@ -586,6 +571,14 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
           //authentication_func();
           salt_from_server[0] = packet_buffer[4];
           salt_from_server[1] = packet_buffer[5];
+          Serial.println("Salt is: ");
+          Serial.print(salt_from_server[0]);
+          Serial.print(", ");
+          Serial.print(salt_from_server[1]);
+          Serial.println("");
+          Serial.println("");
+          //get seq number
+          seq_number =  convert_byte_to_int(packet_buffer, 2, 2);
           salted_code[0] = (auth_code[0] ^ salt_from_server[0]);
           salted_code[1] = (auth_code[1] ^ salt_from_server[1]);
           have_salt = true;
