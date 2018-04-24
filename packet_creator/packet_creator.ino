@@ -267,7 +267,7 @@ void setup() {
   int size_of_packet;
 
 
-  Serial.println("");
+  /*Serial.println("");
   Serial.println("");
   free(temp_msg);  
   size_of_packet = create_packet(&temp_msg, public_key_of_server, sizeof(public_key_of_server), false, 1, 32);
@@ -314,18 +314,60 @@ void setup() {
       Serial.print(temp_msg[i]);
       Serial.print(", ");
     }
-
+*/
    
-  Serial.println("");
-  Serial.println("");
   free(temp_msg);
-  size_of_packet = create_packet(&temp_msg, NULL, 0, false, 3, 59);
-  Serial.print("Packet nack NOT ciphered with empty places + 0: ");
+  size_of_packet = create_packet(&temp_msg, NULL, 0, true, 7, 12);
+  Serial.print("Packet STATUS: ");
   for (int i = 0; i < size_of_packet; i++)
     {
       Serial.print(temp_msg[i]);
       Serial.print(", ");
     }
+
+  Serial.println("");
+  Serial.println("");
+  
+
+  free(temp_msg);
+  size_of_packet = create_packet(&temp_msg, NULL, 0, true, 8, 19);
+  Serial.print("Packet FIN: ");
+  for (int i = 0; i < size_of_packet; i++)
+    {
+      Serial.print(temp_msg[i]);
+      Serial.print(", ");
+    }
+
+  Serial.println("");
+  Serial.println("");
+
+  byte lamp_on[4] = {1, 0, 1, 0};
+  byte lamp_off[4] = {1, 0, 0, 0};
+
+  free(temp_msg);
+  size_of_packet = create_packet(&temp_msg, lamp_on, sizeof(lamp_on), true, 6, 11);
+  Serial.print("Packet COMMAND LAMP ON: ");
+  for (int i = 0; i < size_of_packet; i++)
+    {
+      Serial.print(temp_msg[i]);
+      Serial.print(", ");
+    }
+
+  Serial.println("");
+  Serial.println("");
+  
+
+  free(temp_msg);
+  size_of_packet = create_packet(&temp_msg, lamp_off, sizeof(lamp_off), true, 6, 14);
+  Serial.print("Packet COMMAND LAMP OFF: ");
+  for (int i = 0; i < size_of_packet; i++)
+    {
+      Serial.print(temp_msg[i]);
+      Serial.print(", ");
+    }
+
+  Serial.println("");
+  Serial.println("");
 }
 
 void loop() {
