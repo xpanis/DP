@@ -32,6 +32,7 @@ byte packet_buffer[UDP_TX_PACKET_MAX_SIZE]; //buffer to hold incoming packet
 byte my_array[10]={-1,0,1,150,254,255,256,257,350,720};
 byte ack_msg[6]={0,2,0,0,10,10};
 uint8_t state_of_device = 0;
+byte *raw_packet;
 byte *temp_msg;
 byte *temp_msg_to_cipher;
 uint8_t flag_of_success_reg_auth = 1;
@@ -43,6 +44,7 @@ uint8_t number_of_16_u_arrays = 0;
 int seq_number = 0;
 uint16_t * packet_to_checksum;
 int size_of_packet = 0;
+byte test_packet[38] = {0, 1, 0, 50, 174, 243, 69, 129, 50, 14, 32, 63, 61, 38, 104, 233, 157, 59, 18, 146, 231, 38, 134, 104, 218, 18, 237, 151, 178, 213, 104, 139, 155, 21, 222, 119, 153, 22};
 //int number_of_16_u_arrays = 0;
 //----------End of network settings----------
 
@@ -280,15 +282,11 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
   if (is_crypted)
   {
     number_of_16_u_arrays = number_of_words_is(size_of_payload);
-    free(temp_msg_to_cipher);
-    free(input_parts_of_packet);
-    free(output_parts_of_packet);
     int size_of_temp_msg_to_cipher = size_of_payload + 4;
     
     alocate_msg_mem(&msg, ((16 * number_of_16_u_arrays) + 2));
     *packet_to_ret = msg;
     alocate_msg_mem(&temp_msg_to_cipher, size_of_temp_msg_to_cipher); //sign of size of payload: type + seq + 32bytes of hash
-    
     input_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t)); //allocate x times word (16bytes block) to cipher: input + output
     output_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t));
     for (int i = 0; i < number_of_16_u_arrays; i++)
@@ -308,7 +306,6 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
     convert_number_to_array_on_position(temp_msg_to_cipher, 0, 2, type);
     convert_number_to_array_on_position(temp_msg_to_cipher, 2, 2, (long) seq_number);
     convert_array_to_array_on_position(temp_msg_to_cipher, 4, size_of_payload, payload); //set public key into msg
-  
     int index = 0;
     int stop_index = 16;
     for (int i = 0; i < number_of_16_u_arrays; i++)
@@ -322,7 +319,6 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
       }
       stop_index += 16;
     }
-    
     free(temp_msg_to_cipher);
     speck.setKey(public_key_of_server_or_ssecret, 32); //with calculated cipher via DFH and set Speck key
     for (int i = 0; i < number_of_16_u_arrays; i++)
@@ -340,10 +336,14 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
       }
       stop_index += 16;
     }
-    
+
+    for (int i = 0; i < number_of_16_u_arrays; i++)
+    {
+      free(input_parts_of_packet[i]);
+      free(output_parts_of_packet[i]);
+    }
     free(input_parts_of_packet);
-    free(output_parts_of_packet);
-    
+    free(output_parts_of_packet);    
     packet_to_checksum =  (uint16_t *) malloc((number_of_16_u_arrays * 16) * sizeof(uint16_t));
     for (int i = 0; i < (number_of_16_u_arrays * 16); i++)
     {
@@ -362,7 +362,6 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
     convert_number_to_array_on_position(msg, 0, 2, type);
     convert_number_to_array_on_position(msg, 2, 2, (long) seq_number);
     convert_array_to_array_on_position(msg, 4, size_of_payload, payload); //set public key into msg
-    
     packet_to_checksum =  (uint16_t *) malloc((size_of_payload + 4) * sizeof(uint16_t));
     for (int i = 0; i < (size_of_payload + 4); i++)
     {
@@ -400,7 +399,7 @@ void reg_and_auth()
               private_key[i] = fake_private_key[i];
             }
           }
-          free(temp_msg);
+          //free(temp_msg);
           seq_number = 1;
           size_of_packet = create_packet(&temp_msg, public_key_of_arduino, sizeof(public_key_of_arduino), false, 0, seq_number);
           send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet);
@@ -449,8 +448,9 @@ void reg_and_auth()
        {
           free(temp_msg);
           seq_number = 1;
-          size_of_packet = create_packet(&temp_msg, NULL, 0, false, 2, seq_number);
+          size_of_packet = create_packet(&temp_msg, NULL, 0, true, 2, seq_number);
           send_udp_msg(remote_ip, remote_port, temp_msg, size_of_packet);
+          
           //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet); - The Real One
           state_of_device++;
           break;
@@ -499,7 +499,7 @@ void reg_and_auth()
             uint8_t hashed_auth_code[32];
             blake.finalize(hashed_auth_code, 32);
 
-            free(temp_msg);
+            //free(temp_msg);
             seq_number++;
             size_of_packet = create_packet(&temp_msg, hashed_auth_code, sizeof(hashed_auth_code), true, 5, seq_number);
             seq_number++;
@@ -513,7 +513,6 @@ void reg_and_auth()
           {
             //seq number from packet must == seq_number;
             //wait for acknoladge / notack
-            
             uint8_t wait_times = 0;
             uint8_t cancel_flag = 0;
             while (!cancel_flag) // listening UDP register_response packets
@@ -521,7 +520,7 @@ void reg_and_auth()
               packetSize = udp.parsePacket();
               if (packetSize) // if UDP packets come
               {
-                get_packet_to_buffer(false);
+                get_packet_to_buffer(true);
                 int parse_permition = identify_packet();
                 parse_packet((byte) parse_permition);
                 if (come_ack)
@@ -578,7 +577,46 @@ int identify_packet() //need chceck - work only with second byte!!!!!!!!!!!!!!!!
 
 int checksum_check()
 {
-  return 1; //checksum check disabled
+  packet_to_checksum =  (uint16_t *) malloc((packetSize - 2) * sizeof(uint16_t));
+  int packet_size_shorted = packetSize - 2;
+  
+  for (int i = 0; i < (packet_size_shorted); i++)
+  {
+    packet_to_checksum[i] = (uint16_t) raw_packet[i];
+    //Serial.print(packet_to_checksum[i]);
+    //Serial.print(", ");
+  }
+  /*Serial.println("");
+  Serial.println("");
+  Serial.print("Last 2 bytes are: ");
+  Serial.print(raw_packet[packet_size_shorted]);
+  Serial.print(", ");
+  Serial.print(raw_packet[packet_size_shorted + 1]);
+  Serial.println("");
+  Serial.println("");*/
+  
+  uint16_t calc_checksum = sum_calc(packet_size_shorted, packet_to_checksum);
+  //Serial.print("Calc chck is: ");
+  //Serial.print(calc_checksum);
+  //Serial.println("");
+  
+  free(packet_to_checksum);
+  free(raw_packet);
+  
+  int get_checksum = convert_byte_to_int(raw_packet, packet_size_shorted, 2);
+  /*Serial.print("Get chck is: ");
+  Serial.print(get_checksum);
+  Serial.println("");
+  Serial.println("");*/
+
+  
+  if (get_checksum == (int) calc_checksum)
+  {
+    Serial.println("Checksum PASS");
+    return 1;
+  }
+  Serial.println("Checksum NOT PASS");
+  return 0;
 }
 
 
@@ -618,16 +656,21 @@ void get_packet_to_buffer(bool need_decipher)
   remote_ip = udp.remoteIP(); // read the packet remote IP
   remote_port = udp.remotePort(); // read the packet remote port
   udp.read(packet_buffer, UDP_TX_PACKET_MAX_SIZE); // read the packet into packetBufffer
+  alocate_msg_mem(&raw_packet, packetSize);
+  for (int i = 0; i < packetSize; i++)
+  {
+    raw_packet[i] = packet_buffer[i];
+  }
 
   if (need_decipher)
   {
-    free(deciphered_packet);
     deciphered_packet = (uint8_t *) malloc(packetSize * sizeof(uint8_t));    
     speck.decryptBlock(deciphered_packet, packet_buffer);    
     for (int i = 0; i < packetSize; i++)
     {
       packet_buffer[i] = deciphered_packet[i];
     }
+    free(deciphered_packet);
   }
 }
 
@@ -703,7 +746,10 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
     }
   }
   else
+  {
+    Serial.println("Wrong checksum!");
     return 0; //fail of parse packet
+  }
     
   return 1; //corect parse packet
 }
@@ -786,9 +832,26 @@ void setup()
   reg_and_auth(); // registration of whole device to gateway
   Serial.println("Koniec reg_and auth");
   }
-  else
+  else  //test
   {
-    //test
+  /*packet_to_checksum =  (uint16_t *) malloc(36 * sizeof(uint16_t));
+  
+  Serial.print("Do checksumu vstupuje: ");
+  for (int i = 0; i < 36; i++)
+  {
+    packet_to_checksum[i] = (uint16_t) test_packet[i];
+    Serial.print(packet_to_checksum[i]);
+    Serial.print(", ");
+  }
+  Serial.println("");
+  
+  uint16_t calc_checksum = sum_calc(36, packet_to_checksum);
+  Serial.println("Checksum is: ");
+  Serial.println(calc_checksum);
+  
+  free(packet_to_checksum);
+  
+  int get_checksum = convert_byte_to_int(test_packet, 36, 2);*/
   }
 }
 
