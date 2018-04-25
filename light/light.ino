@@ -282,23 +282,18 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
   
   if (is_crypted) //tu niekde to crashuje
   {
-    Serial.println("In create packet: 4");
     number_of_16_u_arrays = number_of_words_is(size_of_payload);
-    Serial.println("In create packet: 5");
     int size_of_temp_msg_to_cipher = size_of_payload + 4;
-    Serial.println("In create packet: 6");
     alocate_msg_mem(&msg, ((16 * number_of_16_u_arrays) + 2));
     *packet_to_ret = msg;
     alocate_msg_mem(&temp_msg_to_cipher, size_of_temp_msg_to_cipher); //sign of size of payload: type + seq + 32bytes of hash
     input_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t)); //allocate x times word (16bytes block) to cipher: input + output
     output_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t));
-    Serial.println("In create packet: 7");
     for (int i = 0; i < number_of_16_u_arrays; i++)
     {
       input_parts_of_packet[i] = (uint8_t *) malloc(16 * sizeof(uint8_t));
       output_parts_of_packet[i] = (uint8_t *) malloc(16 * sizeof(uint8_t));
     }
-    Serial.println("In create packet: 8");
     for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
     {
       for (int j = 0; j < 16; j++)
@@ -307,43 +302,10 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
         output_parts_of_packet[i][j] = 0;
       }
     }
-    Serial.println("In create packet: 8,5");
-    Serial.println("In input is: ");
-    for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
-    {
-      Serial.print("Pole ");
-      Serial.print(i);
-      Serial.print(" is: ");
-      for (int j = 0; j < 16; j++)
-      {
-        Serial.print(input_parts_of_packet[i][j]);
-        Serial.print(", ");
-      }
-    }
-    Serial.println("");
-    Serial.println("");
-    
-    for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
-    {
-      Serial.print("Pole ");
-      Serial.print(i);
-      Serial.print(" is: ");
-      for (int j = 0; j < 16; j++)
-      {
-        Serial.print(output_parts_of_packet[i][j]);
-        Serial.print(", ");
-      }
-    }
-    Serial.println("");
-    Serial.println("");
-
-    
-    Serial.println("In create packet: 9");
     
     convert_number_to_array_on_position(temp_msg_to_cipher, 0, 2, type);
     convert_number_to_array_on_position(temp_msg_to_cipher, 2, 2, (long) seq_number);
     convert_array_to_array_on_position(temp_msg_to_cipher, 4, size_of_payload, payload); //set public key into msg
-    Serial.println("In create packet: 10");
     int index = 0;
     int stop_index = 16;
     for (int i = 0; i < number_of_16_u_arrays; i++)
@@ -373,16 +335,14 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
     Serial.println("");
     Serial.println("");
     
-    Serial.println("In create packet: 11");
     free(temp_msg_to_cipher);
-    Serial.println("In create packet: 12");
     speck.setKey(public_key_of_server_or_ssecret, 32); //with calculated cipher via DFH and set Speck key
-    Serial.println("In create packet: 13");
     Serial.println("I: ");
     for (int i = 0; i < number_of_16_u_arrays; i++)
     {
       Serial.print(i);
       Serial.print(", ");
+      Serial.println("");
       speck.encryptBlock(&output_parts_of_packet[i][0], &input_parts_of_packet[i][0]);  //CRASHER HERE in i = 2; when come AUTH
       Serial.print("Ciphered is: ");
       for (int j = 0; j < 16; j++)
@@ -390,8 +350,8 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
         Serial.print(output_parts_of_packet[i][j]);
         Serial.print(", ");
       }
+      Serial.print(" Encrypt OK! ");
       Serial.println("");
-      Serial.print("Encrypt OK! ");
     }
     Serial.println("");
     Serial.println("In create packet: 14");
@@ -770,9 +730,10 @@ void get_packet_to_buffer(bool need_decipher)
     for (int i = 0; i < packetSize; i++)
     {
       packet_buffer[i] = deciphered_packet[i];
-      Serial.println(packet_buffer[i]);
-      Serial.println(", ");
+      Serial.print(packet_buffer[i]);
+      Serial.print(", ");
     }
+    Serial.println("");
     Serial.println("here 5"); 
     deciphered_packet = NULL;
     free(deciphered_packet);
