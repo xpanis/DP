@@ -7,7 +7,7 @@ uint8_t secret[32] = {16, 29, 211, 181, 107, 23, 26, 25, 8, 122, 106, 92, 17, 35
 uint8_t fake_public_key_of_arduino[32] = {183, 213, 11, 131, 18, 199, 146, 88, 127, 147, 102, 167, 60, 161, 231, 11, 241, 151, 138, 19, 234, 41, 102, 5, 114, 12, 135, 164, 112, 135, 31, 65};
 uint8_t public_key_of_server[32] = {174, 243, 69, 129, 50, 14, 32, 63, 61, 38, 104, 233, 157, 59, 18, 146, 231, 38, 134, 104, 218, 18, 237, 151, 178, 213, 104, 139, 155, 21, 222, 119};
 byte * test_array[5];// = {16, 29, 211, 181, 107};
-uint8_t salt[2] = {7,32};
+uint8_t salt[8] = {7, 32, 14, 226, 68, 0, 34, 196};
 uint8_t hash[32];
 uint8_t key[32];
 uint8_t key_for_blake[32];
@@ -315,6 +315,20 @@ void setup() {
       Serial.print(", ");
     }
 */
+
+
+  free(temp_msg);
+  size_of_packet = create_packet(&temp_msg, salt, sizeof(salt), true, 4, 57);
+  Serial.print("Packet AUTH: ");
+  for (int i = 0; i < size_of_packet; i++)
+    {
+      Serial.print(temp_msg[i]);
+      Serial.print(", ");
+    }
+
+  Serial.println("");
+  Serial.println("");
+
    
   free(temp_msg);
   size_of_packet = create_packet(&temp_msg, NULL, 0, true, 7, 12);
