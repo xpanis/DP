@@ -722,7 +722,7 @@ void command_func()
   seq_number++;
   size_of_packet = create_packet(&temp_msg, NULL, 0, true, 2, seq_number);
   //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet);
-  send_udp_msg(remote_pc, remote_port, temp_msg, size_of_packet);
+  send_udp_msg(remote_ip, remote_port, temp_msg, size_of_packet);
   //send_udp_msg(remote_ip, remote_port, ack_msg, (sizeof(ack_msg))); // send ACK
 }
 
