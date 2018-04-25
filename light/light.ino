@@ -60,9 +60,9 @@ uint8_t ** output_parts_of_packet;
 
 
 //----------Start of cypher and shared secret----------
-uint8_t auth_code[2] = {23,138};  //special code for each device size of 2B
-uint8_t salt_from_server[2];
-uint8_t salted_code[2];
+uint8_t auth_code[8] = {23, 138, 57, 62, 241, 37, 85, 11};  //special code for each device
+uint8_t salt_from_server[8];
+uint8_t salted_code[8];
 uint8_t public_key_of_arduino[32];
 uint8_t * public_key_of_server_or_ssecret;
 uint8_t private_key[32];
@@ -259,14 +259,11 @@ int number_of_words_is(int size_of_payload)
   int ret = 0;
   int part = 0;
   int rest = 0;
-
   part = size_of_payload / 16;
   rest = size_of_payload % 16;
   ret = part;
-
   if (rest > 0)
     ret++;
-
   return ret;
 }
 
@@ -274,27 +271,34 @@ int number_of_words_is(int size_of_payload)
 
 int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bool is_crypted, int type, int seq_number)
 {
+  Serial.println("In create packet: 1");
   int size_of_whole_packet = 0;
   *packet_to_ret = NULL;
   byte * msg;
   msg = *packet_to_ret;
+  Serial.println("In create packet: 2");
   free(msg);
+  Serial.println("In create packet: 3");
   
-  if (is_crypted)
+  if (is_crypted) //tu niekde to crashuje
   {
+    Serial.println("In create packet: 4");
     number_of_16_u_arrays = number_of_words_is(size_of_payload);
+    Serial.println("In create packet: 5");
     int size_of_temp_msg_to_cipher = size_of_payload + 4;
-    
+    Serial.println("In create packet: 6");
     alocate_msg_mem(&msg, ((16 * number_of_16_u_arrays) + 2));
     *packet_to_ret = msg;
     alocate_msg_mem(&temp_msg_to_cipher, size_of_temp_msg_to_cipher); //sign of size of payload: type + seq + 32bytes of hash
     input_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t)); //allocate x times word (16bytes block) to cipher: input + output
     output_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t));
+    Serial.println("In create packet: 7");
     for (int i = 0; i < number_of_16_u_arrays; i++)
     {
       input_parts_of_packet[i] = (uint8_t *) malloc(16 * sizeof(uint8_t));
       output_parts_of_packet[i] = (uint8_t *) malloc(16 * sizeof(uint8_t));
     }
+    Serial.println("In create packet: 8");
     for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
     {
       for (int j = 0; j < 16; j++)
@@ -303,10 +307,43 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
         output_parts_of_packet[i][j] = 0;
       }
     }
+    Serial.println("In create packet: 8,5");
+    Serial.println("In input is: ");
+    for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
+    {
+      Serial.print("Pole ");
+      Serial.print(i);
+      Serial.print(" is: ");
+      for (int j = 0; j < 16; j++)
+      {
+        Serial.print(input_parts_of_packet[i][j]);
+        Serial.print(", ");
+      }
+    }
+    Serial.println("");
+    Serial.println("");
+    
+    for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
+    {
+      Serial.print("Pole ");
+      Serial.print(i);
+      Serial.print(" is: ");
+      for (int j = 0; j < 16; j++)
+      {
+        Serial.print(output_parts_of_packet[i][j]);
+        Serial.print(", ");
+      }
+    }
+    Serial.println("");
+    Serial.println("");
+
+    
+    Serial.println("In create packet: 9");
     
     convert_number_to_array_on_position(temp_msg_to_cipher, 0, 2, type);
     convert_number_to_array_on_position(temp_msg_to_cipher, 2, 2, (long) seq_number);
     convert_array_to_array_on_position(temp_msg_to_cipher, 4, size_of_payload, payload); //set public key into msg
+    Serial.println("In create packet: 10");
     int index = 0;
     int stop_index = 16;
     for (int i = 0; i < number_of_16_u_arrays; i++)
@@ -320,13 +357,44 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
       }
       stop_index += 16;
     }
+
+    Serial.println("In input after fill is: ");
+    for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
+    {
+      Serial.print("Pole ");
+      Serial.print(i);
+      Serial.print(" is: ");
+      for (int j = 0; j < 16; j++)
+      {
+        Serial.print(input_parts_of_packet[i][j]);
+        Serial.print(", ");
+      }
+    }
+    Serial.println("");
+    Serial.println("");
+    
+    Serial.println("In create packet: 11");
     free(temp_msg_to_cipher);
+    Serial.println("In create packet: 12");
     speck.setKey(public_key_of_server_or_ssecret, 32); //with calculated cipher via DFH and set Speck key
+    Serial.println("In create packet: 13");
+    Serial.println("I: ");
     for (int i = 0; i < number_of_16_u_arrays; i++)
     {
-      speck.encryptBlock(&output_parts_of_packet[i][0], &input_parts_of_packet[i][0]);
+      Serial.print(i);
+      Serial.print(", ");
+      speck.encryptBlock(&output_parts_of_packet[i][0], &input_parts_of_packet[i][0]);  //CRASHER HERE in i = 2; when come AUTH
+      Serial.print("Ciphered is: ");
+      for (int j = 0; j < 16; j++)
+      {
+        Serial.print(output_parts_of_packet[i][j]);
+        Serial.print(", ");
+      }
+      Serial.println("");
+      Serial.print("Encrypt OK! ");
     }
-    
+    Serial.println("");
+    Serial.println("In create packet: 14");
     index = 0;
     stop_index = 16;
     for (int i = 0; i < number_of_16_u_arrays; i++)
@@ -337,26 +405,42 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
       }
       stop_index += 16;
     }
+    Serial.println("In create packet: 15");
 
     for (int i = 0; i < number_of_16_u_arrays; i++)
     {
+      input_parts_of_packet[i] = NULL;
+      output_parts_of_packet[i] = NULL;
       free(input_parts_of_packet[i]);
       free(output_parts_of_packet[i]);
     }
+    Serial.println("In create packet: 16");
+    input_parts_of_packet = NULL;
     free(input_parts_of_packet);
+    Serial.println("In create packet: 17");
+    output_parts_of_packet = NULL;
     free(output_parts_of_packet);    
-    packet_to_checksum =  (uint16_t *) malloc((number_of_16_u_arrays * 16) * sizeof(uint16_t));
+    Serial.println("In create packet: 18");
+    packet_to_checksum =  (uint16_t *) malloc((number_of_16_u_arrays * 16) * sizeof(uint16_t)); //CRASHER HERE in i = 2; when come AUTH
+    Serial.println("In create packet: 19");
     for (int i = 0; i < (number_of_16_u_arrays * 16); i++)
     {
       packet_to_checksum[i] = (uint16_t) msg[i];
     }
+    Serial.println("In create packet: 20");
     uint16_t checksum = sum_calc((number_of_16_u_arrays * 16), packet_to_checksum);
-    free(packet_to_checksum);    
+    Serial.println("In create packet: 21");
+    packet_to_checksum = NULL;
+    free(packet_to_checksum);   
+    Serial.println("In create packet: 22"); 
     convert_number_to_array_on_position(msg, (number_of_16_u_arrays * 16), 2, (long) checksum); //set checksum into msg
+    Serial.println("In create packet: 23");
     size_of_whole_packet = (16 * number_of_16_u_arrays) + 2;
+    Serial.println("In create packet: 24");
   }
   else
   {
+    Serial.println("In create packet: 25");
     alocate_msg_mem(&msg, (size_of_payload + 6));
     *packet_to_ret = msg;
     
@@ -369,9 +453,11 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
       packet_to_checksum[i] = (uint16_t) msg[i];
     }
     uint16_t checksum = sum_calc((size_of_payload + 4), packet_to_checksum);
+    packet_to_checksum = NULL;
     free(packet_to_checksum);    
     convert_number_to_array_on_position(msg, (size_of_payload + 4), 2, (long) checksum); //set checksum into msg
     size_of_whole_packet = (size_of_payload + 6);
+    Serial.println("In create packet: 26");
   }
   return size_of_whole_packet;
 }
@@ -410,6 +496,7 @@ void reg_and_auth()
        }
        case 1 : //wait for public key from server
        {
+          Serial.println("STATE 1");
           uint8_t wait_times = 0;
           uint8_t cancel_flag = 0;
           while (!cancel_flag) // listening UDP register_response packets
@@ -448,6 +535,7 @@ void reg_and_auth()
        }
        case 2 :
        {
+          Serial.println("STATE 2");
           //free(temp_msg);
           seq_number = 1;
           size_of_packet = create_packet(&temp_msg, NULL, 0, true, 2, seq_number);
@@ -458,6 +546,7 @@ void reg_and_auth()
        }
        case 3 : //wait for SALT - auth packet
        {
+        Serial.println("STATE 3");
           uint8_t wait_times = 0;
           uint8_t cancel_flag = 0;
           while (!cancel_flag) // listening UDP register_response packets
@@ -494,24 +583,45 @@ void reg_and_auth()
        }
        case 4 : //have salt, calculate hash and send auth_response  
           {
-            BLAKE2s blake;
+            Serial.println("STATE 4");
+            /*BLAKE2s blake;
             blake.reset(key_for_blake, sizeof(key_for_blake), 32);
             blake.update(salted_code, sizeof(salted_code));
             uint8_t hashed_auth_code[32];
-            blake.finalize(hashed_auth_code, 32);
+            blake.finalize(hashed_auth_code, 32);*/
+            BLAKE2s blake;
+            blake.resetHMAC(key_for_blake, sizeof(key_for_blake));
+            blake.update(salted_code, sizeof(salted_code));
+            uint8_t hashed_auth_code[32];
+            blake.finalizeHMAC(key_for_blake, sizeof(key_for_blake), hashed_auth_code, 32);
+            
+            Serial.print("HASH after Blake2s: ");
+            for (int i = 0; i < 32; i++)
+            {
+              Serial.print(hashed_auth_code[i]);
+              Serial.print(", ");
+            }
+            Serial.println("");
+            Serial.println("");
 
             //free(temp_msg);
             seq_number++;
+            Serial.print("1");
             size_of_packet = create_packet(&temp_msg, hashed_auth_code, sizeof(hashed_auth_code), true, 5, seq_number);
+            Serial.print("2");
             seq_number++;
             expected_seq_number = seq_number;
+            Serial.print("3");
             send_udp_msg(remote_ip, remote_port, temp_msg, size_of_packet);
+            Serial.print("4");
             //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet); - The Real One
             state_of_device++;
+            Serial.print("5");
             break;
           }
        case 5 :
           {
+            Serial.println("STATE 5");
             //seq number from packet must == seq_number;
             //wait for acknoladge / notack
             uint8_t wait_times = 0;
@@ -570,7 +680,7 @@ void reg_and_auth()
 
 
 
-int identify_packet() //need chceck - work only with second byte!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!*********************************** - WORKS NOW
+int identify_packet()
 {  
   return convert_byte_to_int(packet_buffer, 0, 2); // get type of packet and return
 }
@@ -609,7 +719,11 @@ void command_func()
   Serial.println(convert_byte_to_int(packet_buffer, 4, 1)); // return number of cmds  
   
   change_light_state(convert_byte_to_int(packet_buffer, 6, 1)); // change state of lamp
-  send_udp_msg(remote_ip, remote_port, ack_msg, (sizeof(ack_msg))); // send ACK
+  seq_number++;
+  size_of_packet = create_packet(&temp_msg, NULL, 0, true, 2, seq_number);
+  //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet);
+  send_udp_msg(remote_pc, remote_port, temp_msg, size_of_packet);
+  //send_udp_msg(remote_ip, remote_port, ack_msg, (sizeof(ack_msg))); // send ACK
 }
 
 
@@ -639,27 +753,39 @@ void get_packet_to_buffer(bool need_decipher)
   remote_port = udp.remotePort(); // read the packet remote port
   udp.read(packet_buffer, UDP_TX_PACKET_MAX_SIZE); // read the packet into packetBufffer
   alocate_msg_mem(&raw_packet, packetSize);
+  Serial.println("Packet in get_packet_to_buffer");
   for (int i = 0; i < packetSize; i++)
   {
     raw_packet[i] = packet_buffer[i];
   }
-
+  Serial.println("here 1");
   if (need_decipher)
   {
-    deciphered_packet = (uint8_t *) malloc(packetSize * sizeof(uint8_t));    
-    speck.decryptBlock(deciphered_packet, packet_buffer);    
+    Serial.println("here 2");
+    deciphered_packet = (uint8_t *) malloc(packetSize * sizeof(uint8_t));
+    Serial.println("here 3");    
+    speck.decryptBlock(deciphered_packet, packet_buffer); 
+    Serial.println("here 4");   
+    Serial.print("Deciphered packet: ");
     for (int i = 0; i < packetSize; i++)
     {
       packet_buffer[i] = deciphered_packet[i];
+      Serial.println(packet_buffer[i]);
+      Serial.println(", ");
     }
+    Serial.println("here 5"); 
+    deciphered_packet = NULL;
     free(deciphered_packet);
+    Serial.println("here 6"); 
   }
+  Serial.println("Packet in get_packet_to_buffer OUT");
 }
 
 
 
 int parse_packet(byte type_of_packet_to_parse) // 0 - for all
 {
+  Serial.println("In parse packet");
   print_general_info();
   if (checksum_check())
   {
@@ -697,7 +823,8 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
           }
           else
           {
-            //in normal mode DO ST
+            //in normal mode DO ST - WHEN I SEND DATA... I HAVE TO WAIT FOR ACK - TO DO
+            //When I send FIN - I WAIT TO SHUT DOWN - HAVE TO WAIT ACK
           }          
           break;
        }
@@ -713,6 +840,7 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
           else
           {
             //in normal mode DO ST
+            //When I send FIN - I WAIT TO SHUT DOWN - IF SERVER SEND ME NACK I INTERRUPT STOPPING
           }
           break;
        }
@@ -720,11 +848,41 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
        {
           if (!register_completed) //register mode
           {
-            salt_from_server[0] = packet_buffer[4];
-            salt_from_server[1] = packet_buffer[5];
+            Serial.print("Salt come: ");
+            for (int i = 0; i < 8; i++)
+            {
+              salt_from_server[i] = packet_buffer[i + 4];
+              Serial.print(salt_from_server[i]);
+              Serial.print(", ");
+            }
+            Serial.println("");
+            Serial.println("");
+            
+            Serial.print("Auth CODE of Arduino is: ");
+            for (int i = 0; i < 8; i++)
+            {
+              Serial.print(auth_code[i]);
+              Serial.print(", ");
+            }
+            Serial.println("");
+            Serial.println("");
+            
             seq_number =  convert_byte_to_int(packet_buffer, 2, 2); //get seq number
-            salted_code[0] = (auth_code[0] ^ salt_from_server[0]);
-            salted_code[1] = (auth_code[1] ^ salt_from_server[1]);
+            Serial.print("Get SEQ number: ");
+            Serial.print(seq_number);
+            Serial.println("");
+            Serial.println("");
+
+            Serial.print("Xored is: ");
+            for (int i = 0; i < 8; i++)
+            {
+              salted_code[i] = (auth_code[i] ^ salt_from_server[i]);
+              Serial.print(salted_code[i]);
+              Serial.print(", ");
+            }
+            Serial.println("");
+            Serial.println("");
+            
             have_salt = true;
           }
           else
@@ -785,6 +943,7 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
           }
           else
           {
+            seq_number = convert_byte_to_int(packet_buffer, 2, 2);
             command_func(); //TO DO!!!!!!!!!!!!!!!!!!!!!!!!
           }
           break;
@@ -948,8 +1107,6 @@ void default_func() // print receivd msg and send error msg back
       for (int i = 0; i < packetSize; i++)
         Serial.print(packet_buffer[i]);
       Serial.println("");
-
-      send_udp_msg(remote_ip, remote_port, my_array, (sizeof(my_array)));
 }
 
 
@@ -997,23 +1154,12 @@ void loop()
   delay(10000);
   Serial.println("Koniec cakania");
   // end time for addition code
-
-    /*while (1) // listening UDP packets - commands, status and special calls and execution
-    {
-      packetSize = udp.parsePacket();
-      if (packetSize) // if UDP packets come
-      {
-        get_packet_to_buffer(false); // neskor TRUE!!!!
-        parse_packet(0);
-      }
-      else
-        break;
-    }*/
     while (1)
     {
       packetSize = udp.parsePacket();
       if (packetSize) // if UDP packets come
       {
+        Serial.println("Packet come!");
         get_packet_to_buffer(true);
         int parse_permition = identify_packet();
         parse_packet((byte) parse_permition);
