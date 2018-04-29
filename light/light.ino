@@ -36,6 +36,8 @@ uint8_t state_of_device = 0;
 byte raw_packet_static[98];
 //byte *temp_msg;
 byte temp_msg_static[98];
+byte buffer_temp_msg_static[6][98];
+byte buffer_help[6][4]
 //byte *temp_msg_to_cipher;
 bool flag_of_success_reg_auth = true;
 bool have_gateway_pub_key = false;
@@ -143,6 +145,100 @@ return ((uint16_t) sum);
 
 
 
+void push_to_buffer(byte input_data[], byte size_of_input_data, int seq_number)
+{
+  /*byte buffer_temp_msg_static[6][98];
+  byte buffer_help[6][4]*/
+  byte free_place_do_input_data = 100;
+  
+  for (int i = 0; i < 6; i++)
+  {
+    if (buffer_help[i][0] == 0) // found place for data
+    {
+      free_place_do_input_data = i;
+      break;
+    }
+  }
+  
+  if (free_place_do_input_data == 100)  //  not found place -> remove oldest
+  {
+    for (int i = 0; i < 6 ; i++)
+    {
+      if (buffer_help[i][1] == 5) // the oldest one
+      {
+        free_place_do_input_data = i; // attach removed place
+        for (int j = 0; j < 98; j++)
+        {
+          buffer_temp_msg_static[free_place_do_input_data][j] = 0; // clean of removed place
+        }
+      }
+    }
+    for (int i = 0; i < 6 ; i++)
+    {
+      buffer_help[i][1]++;
+    }
+  }
+
+  for (int i = 0; i < 98; i++)  //  fill buffer
+  {
+    buffer_temp_msg_static[free_place_do_input_data][i] = input_data[i];
+  }
+  
+  buffer_help[free_place_do_input_data][0] = size_of_input_data;
+  buffer_help[free_place_do_input_data][1] = 0;
+  seq_number++;
+  convert_number_to_array_on_position(buffer_help, 2, 2, seq_number);
+}
+
+
+
+void pop_from_buffer(byte input_data[], byte size_of_input_data, int seq_number)
+{
+ /*byte buffer_temp_msg_static[6][98];
+  byte buffer_help[6][4]*/
+  /*byte free_place_do_input_data = 100;
+  
+  for (int i = 0; i < 6; i++)
+  {
+    if (buffer_help[i][0] == 0) // found place for data
+    {
+      free_place_do_input_data = i;
+      break;
+    }
+  }
+  
+  if (free_place_do_input_data == 100)  //  not found place -> remove oldest
+  {
+    for (int i = 0; i < 6 ; i++)
+    {
+      if (buffer_help[i][1] == 5) // the oldest one
+      {
+        free_place_do_input_data = i; // attach removed place
+        for (int j = 0; j < 98; j++)
+        {
+          buffer_temp_msg_static[free_place_do_input_data][j] = 0; // clean of removed place
+        }
+      }
+    }
+    for (int i = 0; i < 6 ; i++)
+    {
+      buffer_help[i][1]++;
+    }
+  }
+
+  for (int i = 0; i < 98; i++)  //  fill buffer
+  {
+    buffer_temp_msg_static[free_place_do_input_data][i] = input_data[i];
+  }
+  
+  buffer_help[free_place_do_input_data][0] = size_of_input_data;
+  buffer_help[free_place_do_input_data][1] = 0;
+  seq_number++;
+  convert_number_to_array_on_position(buffer_help, 2, 2, seq_number);*/
+}
+
+
+
 /*uint8_t * convert_array_of_bytes_to_array(byte data[], byte start_index, byte data_size) //get array from MSG array to arduino - just ONE USE for NOW - maybe will be problem!
 {
   uint8_t * ret_array;
@@ -158,7 +254,7 @@ return ((uint16_t) sum);
 }*/
 
 
-void convert_array_of_bytes_to_array(uint8_t output_data[], byte output_data_size, byte input_data[], byte start_index, byte input_data_size) //get array from MSG array to arduino - just ONE USE for NOW - maybe will be problem!
+void convert_array_of_bytes_to_array(uint8_t output_data[], byte output_data_size, byte input_data[], byte start_index, byte input_data_size) //get array from MSG array to arduino
 {
   if (output_data_size >= (input_data_size - start_index))
   {
@@ -241,7 +337,7 @@ void convert_array_to_array_on_position(byte * data_array, uint8_t start_index, 
 
 
 
-void alocate_msg_mem(byte **mem, uint8_t size_of_mem)
+/*void alocate_msg_mem(byte **mem, uint8_t size_of_mem)
 {
   *mem = NULL;
   *mem = (byte *) malloc(size_of_mem * sizeof(byte));
@@ -251,7 +347,7 @@ void alocate_msg_mem(byte **mem, uint8_t size_of_mem)
       free(*mem);
       Serial.println("Erro of allocation!");
   }
-}
+}*/
 
 
 
@@ -685,22 +781,11 @@ void reg_and_auth()
        case 4 : //have salt, calculate hash and send auth_response  
           {
             Serial.println("STATE 4");
-            /*BLAKE2s blake;
-            blake.reset(key_for_blake, sizeof(key_for_blake), 32);
-            blake.update(salted_code, sizeof(salted_code));
-            uint8_t hashed_auth_code[32];
-            blake.finalize(hashed_auth_code, 32);*/
-            Serial.println("blake drop 1");
             BLAKE2s blake;
-            Serial.println("blake drop 2");
             blake.resetHMAC(key_for_blake, sizeof(key_for_blake));
-            Serial.println("blake drop 3");
             blake.update(salted_code, sizeof(salted_code));
-            Serial.println("blake drop 4");
             uint8_t hashed_auth_code[32];
-            Serial.println("blake drop 5");
             blake.finalizeHMAC(key_for_blake, sizeof(key_for_blake), hashed_auth_code, 32);
-            Serial.println("blake drop 6");
             
             Serial.print("HASH after Blake2s: ");
             for (int i = 0; i < 32; i++)
@@ -711,7 +796,6 @@ void reg_and_auth()
             Serial.println("");
             Serial.println("");
 
-            //free(temp_msg);
             seq_number++;
             Serial.print("1");
             size_of_packet = create_packet(temp_msg_static, hashed_auth_code, sizeof(hashed_auth_code), true, 5, seq_number);
@@ -729,6 +813,80 @@ void reg_and_auth()
        case 5 :
           {
             Serial.println("STATE 5");
+            //seq number from packet must == seq_number;
+            //wait for acknoladge / notack
+            uint8_t wait_times = 0;
+            uint8_t cancel_flag = 0;
+            while (!cancel_flag) // listening UDP register_response packets
+            {
+              packetSize = udp.parsePacket();
+              if (packetSize) // if UDP packets come
+              {
+                get_packet_to_buffer(true);
+                int parse_permition = identify_packet();
+                parse_packet((byte) parse_permition);
+                if (come_ack)
+                {
+                  cancel_flag = 1;
+                  come_ack = false;
+                }
+                else
+                {
+                  if (come_nack)
+                  {
+                    cancel_flag = 1;
+                    come_nack = false;
+                    state_of_device = 0;
+                  }
+                  else
+                  {
+                    Serial.println("Come wrong packet - not ack or nack");
+                  }
+                }
+              }
+              else
+              {
+                if (wait_times < 10)  //wait 5 sec for salt, if not come set case 0
+                {
+                  delay(500);
+                  wait_times++;
+                }
+                else  // in 5 sec after register not came register response -> packet lost -> send new register msf
+                {
+                  state_of_device = 0; //repeat whole - case 0
+                  cancel_flag = 1;
+                }
+              }
+            }
+            break;
+         }
+       case 6 : //have to send data MSG about devices I have
+          {
+            Serial.println("STATE 6");
+
+            seq_number = 6; //to DO
+            byte array_of_devices[92];
+            int type_of_device_1 = 6;
+            int size_of_array = 3 + 2; //3 for each device + 2 for item "0"
+            
+            for (int i = 0; i < 92; i++)
+            {
+              array_of_devices[i] = 0;
+            }
+            convert_number_to_array_on_position(array_of_devices, 2, 2, 1);
+            convert_number_to_array_on_position(array_of_devices, 4, 1, type_of_device_1);
+            
+            size_of_packet = create_packet(temp_msg_static, array_of_devices, size_of_array, true, (size_of_array + 4), seq_number);
+            seq_number++;
+            expected_seq_number = seq_number;
+            send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
+            //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet); - The Real One
+            state_of_device++;
+            break;
+          }
+       case 7 : //wait for ack
+          {
+            Serial.println("STATE 7");
             //seq number from packet must == seq_number;
             //wait for acknoladge / notack
             uint8_t wait_times = 0;
@@ -820,7 +978,7 @@ int checksum_check()
 void command_func()
 {
   Serial.print("Number of CMDS ");
-  Serial.println(convert_byte_to_int(packet_buffer, 4, 1)); // return number of cmds  
+  Serial.println(convert_byte_to_int(packet_buffer, 4, 1)); // return number of cmds  - so I know how many comands is there... NO PROBLEM
   
   change_light_state(convert_byte_to_int(packet_buffer, 6, 1)); // change state of lamp
   seq_number++;
