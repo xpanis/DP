@@ -11,7 +11,7 @@
 //----------Start of define----------
 #define Light 14 // on Arduino UNO PIN 13 -> Wemos declarate as 14 - WEIRD :D
 #define port_pc 4444 //default port pc listen on
-#define debug false  //true if debging.... false if correct program
+#define debug true  //true if debging.... false if correct program
 #define generate_dfh false  //if false -> communicate with server via define keys
 //----------End of define----------
 
@@ -25,7 +25,8 @@ IPAddress ip_pc(192, 168, 137, 1);  // gateway
 IPAddress remote_ip;
 WiFiUDP udp;  // instance to receive a send packet via UDP
 int expected_seq_number = 0;
-int sequence_number = 0;
+int act_seq_number = 0;
+int seq_number = 0;
 int packetSize = 0;
 int remote_port;
 byte packet_buffer[UDP_TX_PACKET_MAX_SIZE]; //buffer to hold incoming packet
@@ -37,7 +38,9 @@ byte raw_packet_static[98];
 //byte *temp_msg;
 byte temp_msg_static[98];
 byte buffer_temp_msg_static[6][98];
-byte buffer_help[6][4]
+byte buffer_help[6][6];
+byte sheduling_table[10][7];
+byte cmd_help[10][3];
 //byte *temp_msg_to_cipher;
 bool flag_of_success_reg_auth = true;
 bool have_gateway_pub_key = false;
@@ -45,13 +48,19 @@ bool have_salt = false;
 bool come_ack = false;
 bool come_nack = false;
 uint8_t number_of_16_u_arrays = 0;
-int seq_number = 0;
 uint16_t packet_to_checksum_static[96];
 int size_of_packet = 0;
 bool register_completed = false;
+int time_to_send_buffer = 0;
 //int number_of_16_u_arrays = 0;
 //----------End of network settings----------
 
+
+unsigned int seconds = 0;
+unsigned int minutes = 0;
+unsigned long timeNow = 0;
+unsigned long timeLast = 0;
+unsigned int last_minute = 0;
 
 
 //----------Start of prepared msg----------
@@ -78,6 +87,7 @@ Speck speck;
 
 uint8_t fake_public_key_of_arduino[32] = {183, 213, 11, 131, 18, 199, 146, 88, 127, 147, 102, 167, 60, 161, 231, 11, 241, 151, 138, 19, 234, 41, 102, 5, 114, 12, 135, 164, 112, 135, 31, 65};
 uint8_t fake_private_key[32] = {48, 200, 162, 104, 234, 213, 194, 111, 216, 216, 248, 240, 121, 154, 62, 179, 39, 180, 217, 200, 102, 178, 43, 105, 215, 160, 96, 44, 196, 227, 42, 72};
+uint8_t fake_public_key_of_server[32] = {174, 243, 69, 129, 50, 14, 32, 63, 61, 38, 104, 233, 157, 59, 18, 146, 231, 38, 134, 104, 218, 18, 237, 151, 178, 213, 104, 139, 155, 21, 222, 119}; //just for test withou auth phase
 //----------End of cypher and shared secret----------
 
 
@@ -93,7 +103,7 @@ void send_udp_msg(IPAddress dst_ip, int dst_port, char *msg);
 void send_udp_msg(IPAddress dst_ip, int dst_port, byte msg[], byte size_of_msg);
 void default_func();
 void change_light_state(byte state);
-void command_func();
+void set_command();
 int checksum_check();
 int convert_byte_to_int(byte data[], byte start_index, byte data_size);
 void alocate_msg_mem(byte **mem, uint8_t size_of_mem);
@@ -105,6 +115,7 @@ uint16_t sum_calc(uint16_t lenght, uint16_t * input);
 int create_packet(byte * packet_to_ret, byte * payload, int size_of_payload, bool is_crypted, int type, int seq_number);
 int number_of_words_is(int size_of_payload);
 void stop_function();
+void sort_help_buffer();
 //----------End of function declaration----------
 
 int incomingByte = 0; 
@@ -144,11 +155,94 @@ return ((uint16_t) sum);
 }
 
 
-
-void push_to_buffer(byte input_data[], byte size_of_input_data, int seq_number)
+void do_periodic_func()
 {
-  /*byte buffer_temp_msg_static[6][98];
-  byte buffer_help[6][4]*/
+  //measere value from sensor and if is right time, send it as Data packet
+  //or extra functionality
+}
+
+
+void timer()
+{
+  Serial.println("in timer");
+  timeNow = millis()/1000;
+  seconds = timeNow - timeLast;
+
+  if (seconds >= 60)
+  {
+  timeLast = timeNow;
+  minutes = minutes + 1;
+  }
+
+  if (last_minute < minutes)
+  {
+   last_minute = minutes;
+   do_command_from_sheduling_table();
+   retransmission();
+  }
+  Serial.println("out timer");
+}
+
+
+
+void shedulling_table_init()
+{
+  for (int i = 0; i < 10; i++)
+  {
+    for (int j = 0; j < 7; j++)
+    {
+      sheduling_table[i][j] = 0;
+      if (j < 3)
+      {
+        cmd_help[i][j] = 0;
+      }
+    }
+  }
+}
+
+
+void buffer_init()
+{
+  for (int i = 0; i < 6; i++)
+  {
+    for (int j = 0; j < 98; j++)
+    {
+      buffer_temp_msg_static[i][j] = 0;
+      if (j < 6)
+      {
+        buffer_help[i][j] = 0;
+      }
+    }
+  }
+}
+
+
+
+
+void retransmission()
+{
+  for (int i = 0; i < 6 ; i++)
+  {
+    if (buffer_help[i][0] != 0)
+    {
+      send_udp_msg(ip_pc, port_pc, &buffer_temp_msg_static[i][0], buffer_help[i][0]); //can be remote IP and PORT
+      for (int j = 0; j < 98; j++)
+      {
+        buffer_temp_msg_static[i][j] = 0;
+        if (j < 6)
+        {
+          buffer_help[i][j] = 0;
+        }
+      }
+    }
+  }
+}
+
+
+
+
+void push_to_buffer(byte input_data[], byte size_of_input_data, int seq_number, bool is_fin) //only DATA + FIN!!!!!!!!!!!!!!!
+{
   byte free_place_do_input_data = 100;
   
   for (int i = 0; i < 6; i++)
@@ -156,6 +250,7 @@ void push_to_buffer(byte input_data[], byte size_of_input_data, int seq_number)
     if (buffer_help[i][0] == 0) // found place for data
     {
       free_place_do_input_data = i;
+      buffer_help[free_place_do_input_data][4] = 1;
       break;
     }
   }
@@ -164,16 +259,21 @@ void push_to_buffer(byte input_data[], byte size_of_input_data, int seq_number)
   {
     for (int i = 0; i < 6 ; i++)
     {
-      if (buffer_help[i][1] == 5) // the oldest one
+      if (buffer_help[i][1] == 6) // the oldest one
       {
         free_place_do_input_data = i; // attach removed place
         for (int j = 0; j < 98; j++)
         {
           buffer_temp_msg_static[free_place_do_input_data][j] = 0; // clean of removed place
         }
+        buffer_help[i][1] = 0;
       }
     }
-    for (int i = 0; i < 6 ; i++)
+  }
+
+  for (int i = 0; i < 6 ; i++)
+  {
+    if (buffer_help[i][4] == 1) // uses at least one time
     {
       buffer_help[i][1]++;
     }
@@ -185,56 +285,73 @@ void push_to_buffer(byte input_data[], byte size_of_input_data, int seq_number)
   }
   
   buffer_help[free_place_do_input_data][0] = size_of_input_data;
-  buffer_help[free_place_do_input_data][1] = 0;
   seq_number++;
-  convert_number_to_array_on_position(buffer_help, 2, 2, seq_number);
+  buffer_help[free_place_do_input_data][5] = (is_fin = true) ? 1: 0;
+  convert_number_to_array_on_position(buffer_help[free_place_do_input_data], 2, 2, seq_number);
 }
 
 
 
-void pop_from_buffer(byte input_data[], byte size_of_input_data, int seq_number)
+void sort_help_buffer()
 {
- /*byte buffer_temp_msg_static[6][98];
-  byte buffer_help[6][4]*/
-  /*byte free_place_do_input_data = 100;
+  byte act_number = 1;
+  bool is_this_number_in_buffer = false;
+  byte missing_number = 1;
   
+  for (int j = 0; j < 6 ; j++)
+  {
+    for (int i = 0; i < 6 ; i++)
+    {
+      if (buffer_help[i][1] == act_number)
+      {
+        if (missing_number < act_number)
+        {
+          buffer_help[i][1] = missing_number;
+          //missing_number = act_number;
+        }
+        is_this_number_in_buffer = true;
+        break;
+      }
+    }
+    if (is_this_number_in_buffer = true)
+    {
+      missing_number++;
+    }
+    else
+    {
+      missing_number = act_number;
+    }    
+    act_number++;
+    is_this_number_in_buffer = false;
+  }
+  
+} 
+
+
+
+bool clean_from_buffer(int expected_seq_number, bool * is_fin)
+{
+  bool is_in_buffer = false;
   for (int i = 0; i < 6; i++)
   {
-    if (buffer_help[i][0] == 0) // found place for data
+    if (expected_seq_number == convert_byte_to_int(buffer_help[i], 2, 2))
     {
-      free_place_do_input_data = i;
+      *is_fin = (buffer_help[i][5] == 1) ? true: false;
+      //clean from buffer
+      for (int j = 0; j < 98; j++)
+      {
+        buffer_temp_msg_static[i][j] = 0;
+        if (j < 6)
+        {
+          buffer_help[i][j] = 0;
+        }
+      }
+      sort_help_buffer();      
+      is_in_buffer = true;
       break;
     }
   }
-  
-  if (free_place_do_input_data == 100)  //  not found place -> remove oldest
-  {
-    for (int i = 0; i < 6 ; i++)
-    {
-      if (buffer_help[i][1] == 5) // the oldest one
-      {
-        free_place_do_input_data = i; // attach removed place
-        for (int j = 0; j < 98; j++)
-        {
-          buffer_temp_msg_static[free_place_do_input_data][j] = 0; // clean of removed place
-        }
-      }
-    }
-    for (int i = 0; i < 6 ; i++)
-    {
-      buffer_help[i][1]++;
-    }
-  }
-
-  for (int i = 0; i < 98; i++)  //  fill buffer
-  {
-    buffer_temp_msg_static[free_place_do_input_data][i] = input_data[i];
-  }
-  
-  buffer_help[free_place_do_input_data][0] = size_of_input_data;
-  buffer_help[free_place_do_input_data][1] = 0;
-  seq_number++;
-  convert_number_to_array_on_position(buffer_help, 2, 2, seq_number);*/
+  return is_in_buffer;
 }
 
 
@@ -360,6 +477,9 @@ void sensors_and_actuators_init()
 
 void change_light_state(byte state)
 {
+  Serial.println("State come!");
+  Serial.println(state);
+  Serial.println("");
   if (state)
     digitalWrite(Light, HIGH);
   else
@@ -381,163 +501,6 @@ int number_of_words_is(int size_of_payload)
     ret++;
   return ret;
 }
-
-
-/*
-int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bool is_crypted, int type, int seq_number)
-{
-  Serial.println("In create packet: 1");
-  int size_of_whole_packet = 0;
-  *packet_to_ret = NULL;
-  byte * msg;
-  msg = *packet_to_ret;
-  Serial.println("In create packet: 2");
-  free(msg);
-  Serial.println("In create packet: 3");
-  
-  if (is_crypted) //tu niekde to crashuje
-  {
-    number_of_16_u_arrays = number_of_words_is(size_of_payload);
-    int size_of_temp_msg_to_cipher = size_of_payload + 4;
-    alocate_msg_mem(&msg, ((16 * number_of_16_u_arrays) + 2));
-    *packet_to_ret = msg;
-    alocate_msg_mem(&temp_msg_to_cipher, size_of_temp_msg_to_cipher); //sign of size of payload: type + seq + 32bytes of hash
-    input_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t)); //allocate x times word (16bytes block) to cipher: input + output
-    output_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t));
-    for (int i = 0; i < number_of_16_u_arrays; i++)
-    {
-      input_parts_of_packet[i] = (uint8_t *) malloc(16 * sizeof(uint8_t));
-      output_parts_of_packet[i] = (uint8_t *) malloc(16 * sizeof(uint8_t));
-    }
-    for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
-    {
-      for (int j = 0; j < 16; j++)
-      {
-        input_parts_of_packet[i][j] = 0;
-        output_parts_of_packet[i][j] = 0;
-      }
-    }
-    
-    convert_number_to_array_on_position(temp_msg_to_cipher, 0, 2, type);
-    convert_number_to_array_on_position(temp_msg_to_cipher, 2, 2, (long) seq_number);
-    convert_array_to_array_on_position(temp_msg_to_cipher, 4, size_of_payload, payload); //set public key into msg
-    int index = 0;
-    int stop_index = 16;
-    for (int i = 0; i < number_of_16_u_arrays; i++)
-    {
-      for (; index < stop_index; index++)
-      {
-        if (index < size_of_temp_msg_to_cipher)
-        {
-          input_parts_of_packet[i][index - (i * 16)] = temp_msg_to_cipher[index];
-        }
-      }
-      stop_index += 16;
-    }
-
-    Serial.println("In input after fill is: ");
-    for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
-    {
-      Serial.print("Pole ");
-      Serial.print(i);
-      Serial.print(" is: ");
-      for (int j = 0; j < 16; j++)
-      {
-        Serial.print(input_parts_of_packet[i][j]);
-        Serial.print(", ");
-      }
-    }
-    Serial.println("");
-    Serial.println("");
-    
-    free(temp_msg_to_cipher);
-    speck.setKey(public_key_of_server_or_ssecret, 32); //with calculated cipher via DFH and set Speck key
-    Serial.println("I: ");
-    for (int i = 0; i < number_of_16_u_arrays; i++)
-    {
-      Serial.print(i);
-      Serial.print(", ");
-      Serial.println("");
-      speck.encryptBlock(&output_parts_of_packet[i][0], &input_parts_of_packet[i][0]);  //CRASHER HERE in i = 2; when come AUTH
-      Serial.print("Ciphered is: ");
-      for (int j = 0; j < 16; j++)
-      {
-        Serial.print(output_parts_of_packet[i][j]);
-        Serial.print(", ");
-      }
-      Serial.print(" Encrypt OK! ");
-      Serial.println("");
-    }
-    Serial.println("");
-    Serial.println("In create packet: 14");
-    index = 0;
-    stop_index = 16;
-    for (int i = 0; i < number_of_16_u_arrays; i++)
-    {
-      for (; index < stop_index; index++)
-      {
-        msg[index] = output_parts_of_packet[i][index - (i * 16)];
-      }
-      stop_index += 16;
-    }
-    Serial.println("In create packet: 15");
-
-    for (int i = 0; i < number_of_16_u_arrays; i++)
-    {
-      input_parts_of_packet[i] = NULL;
-      output_parts_of_packet[i] = NULL;
-      free(input_parts_of_packet[i]);
-      free(output_parts_of_packet[i]);
-    }
-    Serial.println("In create packet: 16");
-    input_parts_of_packet = NULL;
-    free(input_parts_of_packet);
-    Serial.println("In create packet: 17");
-    output_parts_of_packet = NULL;
-    free(output_parts_of_packet);    
-    Serial.println("In create packet: 18");
-    packet_to_checksum =  (uint16_t *) malloc((number_of_16_u_arrays * 16) * sizeof(uint16_t)); //CRASHER HERE in i = 2; when come AUTH
-    Serial.println("In create packet: 19");
-    for (int i = 0; i < (number_of_16_u_arrays * 16); i++)
-    {
-      packet_to_checksum[i] = (uint16_t) msg[i];
-    }
-    Serial.println("In create packet: 20");
-    uint16_t checksum = sum_calc((number_of_16_u_arrays * 16), packet_to_checksum);
-    Serial.println("In create packet: 21");
-    packet_to_checksum = NULL;
-    free(packet_to_checksum);   
-    Serial.println("In create packet: 22"); 
-    convert_number_to_array_on_position(msg, (number_of_16_u_arrays * 16), 2, (long) checksum); //set checksum into msg
-    Serial.println("In create packet: 23");
-    size_of_whole_packet = (16 * number_of_16_u_arrays) + 2;
-    Serial.println("In create packet: 24");
-  }
-  else
-  {
-    Serial.println("In create packet: 25");
-    alocate_msg_mem(&msg, (size_of_payload + 6));
-    *packet_to_ret = msg;
-    
-    convert_number_to_array_on_position(msg, 0, 2, type);
-    convert_number_to_array_on_position(msg, 2, 2, (long) seq_number);
-    convert_array_to_array_on_position(msg, 4, size_of_payload, payload); //set public key into msg
-    packet_to_checksum =  (uint16_t *) malloc((size_of_payload + 4) * sizeof(uint16_t));
-    for (int i = 0; i < (size_of_payload + 4); i++)
-    {
-      packet_to_checksum[i] = (uint16_t) msg[i];
-    }
-    uint16_t checksum = sum_calc((size_of_payload + 4), packet_to_checksum);
-    packet_to_checksum = NULL;
-    free(packet_to_checksum);    
-    convert_number_to_array_on_position(msg, (size_of_payload + 4), 2, (long) checksum); //set checksum into msg
-    size_of_whole_packet = (size_of_payload + 6);
-    Serial.println("In create packet: 26");
-  }
-  return size_of_whole_packet;
-}
-*/
-
 
 
 
@@ -659,6 +622,7 @@ int create_packet(byte * packet_to_ret, byte * payload, int size_of_payload, boo
 
 void reg_and_auth()
 {
+  state_of_device = 0;
   register_completed = false;
   flag_of_success_reg_auth = true;
   while (flag_of_success_reg_auth)
@@ -681,7 +645,10 @@ void reg_and_auth()
               private_key_of_arduino[i] = fake_private_key[i];
             }
           }
-          seq_number = 1;
+          act_seq_number = 1; //TO DO - generate number from 0 - 32767
+          seq_number = act_seq_number;
+          expected_seq_number = seq_number + 1;
+          
           size_of_packet = create_packet(temp_msg_static, public_key_of_arduino, sizeof(public_key_of_arduino), false, 0, seq_number);
           send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet);
           state_of_device++;
@@ -701,15 +668,21 @@ void reg_and_auth()
               parse_packet(1);
               if (have_gateway_pub_key)
                 {
-                  Serial.println("aa1");
-                  Curve25519::dh2(public_key_of_server_or_ssecret_static, private_key_of_arduino);   
-                  Serial.println("aa2");
+                  Curve25519::dh2(public_key_of_server_or_ssecret_static, private_key_of_arduino);
+
+                  Serial.print("Shared secret is: ");
+                  for (int i = 0; i < 32; i++)
+                  {
+                    Serial.print(public_key_of_server_or_ssecret_static[i]);
+                    Serial.print(", ");
+                  }
+                  Serial.println("");
+                  Serial.println("");
+                  
                   state_of_device++;
                   cancel_flag = 1;
                   have_gateway_pub_key = false;
-                  Serial.println("aa3");
                   speck.setKey(public_key_of_server_or_ssecret_static, 32); //with calculated cipher via DFH and set Speck key
-                  Serial.println("aa4");
                 }
                 else
                   Serial.println("Come wrong packet - not register response");
@@ -730,18 +703,20 @@ void reg_and_auth()
           }
           break;
        }
-       case 2 :
+       case 2 : //send ACK to reg response
        {
           Serial.println("STATE 2");
-          //free(temp_msg);
-          seq_number = 1;
+          act_seq_number += 2;
+          seq_number = act_seq_number;
+          expected_seq_number = seq_number + 1;
+          
           size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 2, seq_number);
           send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
           //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet); - The Real One
           state_of_device++;
           break;
        }
-       case 3 : //wait for SALT - auth packet
+       case 3 : //wait for SALT - auth packet - SEQ
        {
         Serial.println("STATE 3");
           uint8_t wait_times = 0;
@@ -796,13 +771,13 @@ void reg_and_auth()
             Serial.println("");
             Serial.println("");
 
-            seq_number++;
+            act_seq_number += 2;
+            seq_number = act_seq_number;
+            expected_seq_number = seq_number + 1;
+
             Serial.print("1");
             size_of_packet = create_packet(temp_msg_static, hashed_auth_code, sizeof(hashed_auth_code), true, 5, seq_number);
             Serial.print("2");
-            seq_number++;
-            expected_seq_number = seq_number;
-            Serial.print("3");
             send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
             Serial.print("4");
             //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet); - The Real One
@@ -810,11 +785,10 @@ void reg_and_auth()
             Serial.print("5");
             break;
           }
-       case 5 :
+       case 5 : //wait for acknoladge / notack
           {
             Serial.println("STATE 5");
             //seq number from packet must == seq_number;
-            //wait for acknoladge / notack
             uint8_t wait_times = 0;
             uint8_t cancel_flag = 0;
             while (!cancel_flag) // listening UDP register_response packets
@@ -822,6 +796,7 @@ void reg_and_auth()
               packetSize = udp.parsePacket();
               if (packetSize) // if UDP packets come
               {
+                Serial.println("Come packet ack/nack");
                 get_packet_to_buffer(true);
                 int parse_permition = identify_packet();
                 parse_packet((byte) parse_permition);
@@ -829,6 +804,7 @@ void reg_and_auth()
                 {
                   cancel_flag = 1;
                   come_ack = false;
+                  state_of_device++;
                 }
                 else
                 {
@@ -864,7 +840,10 @@ void reg_and_auth()
           {
             Serial.println("STATE 6");
 
-            seq_number = 6; //to DO
+            act_seq_number += 2;
+            seq_number = act_seq_number;
+            expected_seq_number = seq_number + 1;
+            
             byte array_of_devices[92];
             int type_of_device_1 = 6;
             int size_of_array = 3 + 2; //3 for each device + 2 for item "0"
@@ -875,20 +854,23 @@ void reg_and_auth()
             }
             convert_number_to_array_on_position(array_of_devices, 2, 2, 1);
             convert_number_to_array_on_position(array_of_devices, 4, 1, type_of_device_1);
+            Serial.println("msg about devices: ");
+            for (int i = 0; i < 92; i++)
+            {
+              Serial.print(array_of_devices[i]);
+              Serial.print(", ");
+            }
             
             size_of_packet = create_packet(temp_msg_static, array_of_devices, size_of_array, true, (size_of_array + 4), seq_number);
-            seq_number++;
-            expected_seq_number = seq_number;
             send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
             //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet); - The Real One
             state_of_device++;
             break;
           }
-       case 7 : //wait for ack
+       case 7 : //wait for ack/nack of getting mine devices
           {
             Serial.println("STATE 7");
             //seq number from packet must == seq_number;
-            //wait for acknoladge / notack
             uint8_t wait_times = 0;
             uint8_t cancel_flag = 0;
             while (!cancel_flag) // listening UDP register_response packets
@@ -904,6 +886,7 @@ void reg_and_auth()
                   cancel_flag = 1;
                   flag_of_success_reg_auth = false;
                   come_ack = false;
+                  state_of_device++;
                 }
                 else
                 {
@@ -975,17 +958,165 @@ int checksum_check()
 
 
 
-void command_func()
+void set_command()
 {
-  Serial.print("Number of CMDS ");
-  Serial.println(convert_byte_to_int(packet_buffer, 4, 1)); // return number of cmds  - so I know how many comands is there... NO PROBLEM
-  
-  change_light_state(convert_byte_to_int(packet_buffer, 6, 1)); // change state of lamp
+  Serial.print("Number of CMDS: ");
+  int number_of_cmds = convert_byte_to_int(packet_buffer, 4, 1);
+  Serial.print(number_of_cmds);
+  Serial.println("");
+
   seq_number++;
   size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 2, seq_number);
   //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet);
   send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
   //send_udp_msg(remote_ip, remote_port, ack_msg, (sizeof(ack_msg))); // send ACK
+  
+  for (int i = 0; i < number_of_cmds; i++)
+  {
+    Serial.println("Pushujem do sheduling table!");
+    //set command into sheduling table
+    push_cmd_to_buffer(convert_byte_to_int(packet_buffer, 5, 2), convert_byte_to_int(packet_buffer, 7, 2), packet_buffer[9], convert_byte_to_int(packet_buffer, 10, 2)); //TO DO - podmienka, pushovat, len ak dane zariadenia mam!!!!!!!!!!!
+    Serial.println("Dopushovane sheduling table!");
+  }
+}
+
+
+
+void push_cmd_to_buffer(int _item, int _value1, byte _value2, int _time) //needed function for get float from 3 bytes!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+{
+  byte free_place_do_input_data = 100;
+  
+  Serial.println("Vo funkcii pushovania!");
+  for (int i = 0; i < 10; i++)
+  {
+    if (cmd_help[i][0] == 0) // found place for data
+    {
+      Serial.println("Find empty place in buffer for sheduling");
+      free_place_do_input_data = i;
+      cmd_help[free_place_do_input_data][2] = 1;
+      break;
+    }
+  }
+  
+  if (free_place_do_input_data == 100)  //  not found place -> remove oldest
+  {
+    Serial.println("Not find empty place for shedulling - have to make some!");
+    for (int i = 0; i < 10 ; i++)
+    {
+      if (cmd_help[i][1] == 10) // the oldest one
+      {
+        free_place_do_input_data = i; // attach removed place
+        for (int j = 0; j < 7; j++)
+        {
+          sheduling_table[free_place_do_input_data][j] = 0; // clean of removed place
+        }
+        cmd_help[i][1] = 0;
+      }
+    }
+  }
+  for (int i = 0; i < 10 ; i++)
+  {
+    if (cmd_help[i][2] == 1) // uses at least one time
+    {
+      cmd_help[i][1]++;
+    }
+  }
+  Serial.println("Zapis do shedulovacej tabulky!");
+  convert_number_to_array_on_position(sheduling_table[free_place_do_input_data], 0, 2, _item);
+  Serial.println("1");
+  convert_number_to_array_on_position(sheduling_table[free_place_do_input_data], 2, 2, (long) _value1);
+  Serial.println("2");
+  convert_number_to_array_on_position(sheduling_table[free_place_do_input_data], 4, 1, (long) _value2);
+  Serial.println("4");
+  convert_number_to_array_on_position(sheduling_table[free_place_do_input_data], 5, 2, (_time + minutes)); // time
+  Serial.println("5");
+  cmd_help[free_place_do_input_data][0] = 1;
+
+  Serial.println("");
+  Serial.println("");
+  Serial.println("Vypis Sheduling table: ");
+  for (int i = 0; i < 10; i++)
+  {
+    for (int j = 0; j < 7; j++)
+    {
+      Serial.print(sheduling_table[i][j]);
+      Serial.print(",");
+    }
+    Serial.println("");
+  }
+
+  Serial.println("");
+  Serial.println("");
+  Serial.println("Vypis Help CMD table: ");
+  for (int i = 0; i < 10; i++)
+  {
+    for (int j = 0; j < 3; j++)
+    {
+      Serial.print(cmd_help[i][j]);
+      Serial.print(",");
+    }
+    Serial.println("");
+  }
+  
+  Serial.println("End funkcie pushovania!");
+}
+
+
+
+void do_command_from_sheduling_table()
+{
+  for (int i = 0; i < 10; i++)
+  {
+    if ((convert_byte_to_int(sheduling_table[i], 5, 2)) <= minutes)
+    {
+      //do CMD with index I; TO DO
+      switch(convert_byte_to_int(sheduling_table[i], 0, 2)) // must be actuator
+      {
+         case 1:
+         {
+            //change_light_state(convert_byte_to_int(sheduling_table[i], 2, 3)); // change state of lamp -- WARNING - have to do parse special format of number!!!!
+            change_light_state(convert_byte_to_int(sheduling_table[i], 2, 2)); // only for test
+            break;
+         }
+         default:
+         {
+         }
+      }
+      for (int j = 0; j < 7; j++)
+      {
+        sheduling_table[i][j] = 0;
+        if (j < 3)
+        {
+          cmd_help[i][j] = 0;
+        }
+      }
+    }
+  }
+  Serial.println("");
+  Serial.println("");
+  Serial.println("Vypis Sheduling table: ");
+  for (int i = 0; i < 10; i++)
+  {
+    for (int j = 0; j < 7; j++)
+    {
+      Serial.print(sheduling_table[i][j]);
+      Serial.print(",");
+    }
+    Serial.println("");
+  }
+
+  Serial.println("");
+  Serial.println("");
+  Serial.println("Vypis Help CMD table: ");
+  for (int i = 0; i < 10; i++)
+  {
+    for (int j = 0; j < 3; j++)
+    {
+      Serial.print(cmd_help[i][j]);
+      Serial.print(",");
+    }
+    Serial.println("");
+  }
 }
 
 
@@ -1038,22 +1169,24 @@ void get_packet_to_buffer(bool need_decipher)
         }
         stop_index += 16;
       }
+    Serial.println("Packet RDY for decipher is: (COME wthout checksum)");
+    for (int i = 0; i < 16; i++)
+    {
+      Serial.print(input_parts_of_packet_static[0][i]);
+      Serial.print(", ");
+    }
 
 
-    Serial.println("I: ");
     for (int i = 0; i < number_of_16_u_arrays; i++)
     {
-      Serial.print(i);
-      Serial.print(", ");
-      Serial.println("");
       speck.decryptBlock(&output_parts_of_packet_static[i][0], &input_parts_of_packet_static[i][0]);
-      Serial.print("Ciphered is: ");
+      Serial.print("Deciphered is: ");
       for (int j = 0; j < 16; j++)
       {
         Serial.print(output_parts_of_packet_static[i][j]);
         Serial.print(", ");
       }
-      Serial.print(" Encrypt OK! ");
+      Serial.print(" Decrypt OK! ");
       Serial.println("");
     }
     Serial.println("");
@@ -1094,11 +1227,14 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
         Serial.println("Parse 1");
           if (!register_completed) //register mode
           {
-            //alocate_msg_mem(&public_key_of_server_or_ssecret, 32);
-            Serial.println("here 0");
-            convert_array_of_bytes_to_array(public_key_of_server_or_ssecret_static, sizeof(public_key_of_server_or_ssecret_static), packet_buffer, 4, 32);
-            have_gateway_pub_key = true;
-            Serial.println("here 1");
+            seq_number = convert_byte_to_int(packet_buffer, 2, 2);
+            if (seq_number == expected_seq_number)
+            {
+              Serial.println("start get pub key of server");
+              convert_array_of_bytes_to_array(public_key_of_server_or_ssecret_static, sizeof(public_key_of_server_or_ssecret_static), packet_buffer, 4, 32);
+              have_gateway_pub_key = true;
+              Serial.println("end get pub key of server");
+            }
           }
           else
           {
@@ -1114,8 +1250,11 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
         Serial.println("Parse 2");
           if (!register_completed) //register mode
           {
-            if (convert_byte_to_int(packet_buffer, 2, 2) == expected_seq_number)
+            Serial.println("Som tu v ACK");
+            seq_number = convert_byte_to_int(packet_buffer, 2, 2);
+            if (seq_number == expected_seq_number)
             {
+              Serial.println("Prislo dobre seq number");
               come_ack = true;
             }
           }
@@ -1123,6 +1262,16 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
           {
             //in normal mode DO ST - WHEN I SEND DATA... I HAVE TO WAIT FOR ACK - TO DO
             //When I send FIN - I WAIT TO SHUT DOWN - HAVE TO WAIT ACK
+            bool come_fin_ack = false;
+            if (clean_from_buffer(convert_byte_to_int(packet_buffer, 2, 2), &come_fin_ack))
+            {
+              Serial.println("Packet was deleted from buffer due to coming Right ACK");
+              if (come_fin_ack)
+              {
+                come_fin_ack = false;
+                stop_function();
+              }
+            }
           }          
           break;
        }
@@ -1131,8 +1280,11 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
         Serial.println("Parse 3");
           if (!register_completed) //register mode
           {
-            if (convert_byte_to_int(packet_buffer, 2, 2) == expected_seq_number)
+            Serial.println("Som tu v NACK");
+            seq_number = convert_byte_to_int(packet_buffer, 2, 2);
+            if (seq_number == expected_seq_number)
             {
+              Serial.println("Prislo dobre seq number");
               come_nack = true;
             }
           }
@@ -1140,6 +1292,12 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
           {
             //in normal mode DO ST
             //When I send FIN - I WAIT TO SHUT DOWN - IF SERVER SEND ME NACK I INTERRUPT STOPPING
+            bool come_fin_nack = false;
+            if (clean_from_buffer(convert_byte_to_int(packet_buffer, 2, 2), &come_fin_nack))
+            {
+              Serial.println("Packet was deleted from buffer due to coming Right NACK and stopping is interupted");
+              come_fin_nack = false; // STOPPING rejected
+            }
           }
           break;
        }
@@ -1148,42 +1306,51 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
         Serial.println("Parse 4");
           if (!register_completed) //register mode
           {
-            Serial.print("Salt come: ");
-            for (int i = 0; i < 8; i++)
-            {
-              salt_from_server[i] = packet_buffer[i + 4];
-              Serial.print(salt_from_server[i]);
-              Serial.print(", ");
-            }
-            Serial.println("");
-            Serial.println("");
+            seq_number = convert_byte_to_int(packet_buffer, 2, 2); //get seq number
+            Serial.println("Expected seq is: ");
+            Serial.println(expected_seq_number);
+            Serial.println("Seq number come is: ");
+            Serial.println(seq_number);
             
-            Serial.print("Auth CODE of Arduino is: ");
-            for (int i = 0; i < 8; i++)
+            if (seq_number == expected_seq_number)
             {
-              Serial.print(auth_code[i]);
-              Serial.print(", ");
+              Serial.println("Come packet with right SEQ number!");
+              Serial.print("Salt come: ");
+              for (int i = 0; i < 8; i++)
+              {
+                salt_from_server[i] = packet_buffer[i + 4];
+                Serial.print(salt_from_server[i]);
+                Serial.print(", ");
+              }
+              Serial.println("");
+              Serial.println("");
+              
+              Serial.print("Auth CODE of Arduino is: ");
+              for (int i = 0; i < 8; i++)
+              {
+                Serial.print(auth_code[i]);
+                Serial.print(", ");
+              }
+              Serial.println("");
+              Serial.println("");
+              
+              Serial.print("Get SEQ number: ");
+              Serial.print(seq_number);
+              Serial.println("");
+              Serial.println("");
+  
+              Serial.print("Xored is: ");
+              for (int i = 0; i < 8; i++)
+              {
+                salted_code[i] = (auth_code[i] ^ salt_from_server[i]);
+                Serial.print(salted_code[i]);
+                Serial.print(", ");
+              }
+              Serial.println("");
+              Serial.println("");
+              
+              have_salt = true;
             }
-            Serial.println("");
-            Serial.println("");
-            
-            seq_number =  convert_byte_to_int(packet_buffer, 2, 2); //get seq number
-            Serial.print("Get SEQ number: ");
-            Serial.print(seq_number);
-            Serial.println("");
-            Serial.println("");
-
-            Serial.print("Xored is: ");
-            for (int i = 0; i < 8; i++)
-            {
-              salted_code[i] = (auth_code[i] ^ salt_from_server[i]);
-              Serial.print(salted_code[i]);
-              Serial.print(", ");
-            }
-            Serial.println("");
-            Serial.println("");
-            
-            have_salt = true;
           }
           else
           {
@@ -1246,7 +1413,7 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
           else
           {
             seq_number = convert_byte_to_int(packet_buffer, 2, 2);
-            command_func(); //TO DO!!!!!!!!!!!!!!!!!!!!!!!!
+            set_command(); //TO DO!!!!!!!!!!!!!!!!!!!!!!!!
           }
           break;
        }
@@ -1438,6 +1605,8 @@ void setup()
  
   udp.begin(localPort); // listen on port
   Serial.println("UDP listen");
+  shedulling_table_init();
+  buffer_init();
 
   sensors_and_actuators_init();  // initial of modules - sensors, actuators
   reg_and_auth(); // registration of whole device to gateway
@@ -1445,6 +1614,37 @@ void setup()
   }
   else  //test
   {
+    connect_to_net_via_wifi();  // connet to network
+ 
+    udp.begin(localPort); // listen on port
+    Serial.println("UDP listen");
+    shedulling_table_init();
+    buffer_init();
+  
+    sensors_and_actuators_init();  // initial of modules - sensors, actuators
+
+    for (int i = 0; i < 32; i++)
+    {
+      public_key_of_arduino[i] = fake_public_key_of_arduino[i];
+      private_key_of_arduino[i] = fake_private_key[i];
+      public_key_of_server_or_ssecret_static[i] = fake_public_key_of_server[i];
+    }
+    state_of_device = 8;
+    register_completed = true;
+    
+    Curve25519::dh2(public_key_of_server_or_ssecret_static, private_key_of_arduino);
+    Serial.print("Shared secret is: ");
+    for (int i = 0; i < 32; i++)
+    {
+      Serial.print(public_key_of_server_or_ssecret_static[i]);
+      Serial.print(", ");
+    }
+    Serial.println("");
+    Serial.println("");
+    
+    speck.setKey(public_key_of_server_or_ssecret_static, 32);
+    
+    Serial.println("Koniec reg_and auth");
   }
 }
 
@@ -1456,8 +1656,12 @@ void loop()
   {
   // start time for addition code e.g. call of funcion on relay, lamp, door lock
   Serial.println("Zaciatok cakania");
+  do_periodic_func();
   delay(10000);
   Serial.println("Koniec cakania");
+  
+  timer();
+  
   // end time for addition code
     while (1)
     {
@@ -1477,6 +1681,30 @@ void loop()
   }
   else
   {
+        // start time for addition code e.g. call of funcion on relay, lamp, door lock
+      Serial.println("Zaciatok cakania");
+      do_periodic_func();
+      delay(10000);
+      Serial.println("Koniec cakania");
+      
+      timer();
+      
+      // end time for addition code
+        while (1)
+        {
+          packetSize = udp.parsePacket();
+          if (packetSize) // if UDP packets come
+          {
+            Serial.println("Packet come!");
+            get_packet_to_buffer(true);
+            int parse_permition = identify_packet();
+            parse_packet((byte) parse_permition);
+          }
+          else
+          {
+            break;
+          }
+        }
   //test
   }
 }
