@@ -270,16 +270,16 @@ void setup() {
   /*Serial.println("");
   Serial.println("");
   free(temp_msg);  
-  size_of_packet = create_packet(&temp_msg, public_key_of_server, sizeof(public_key_of_server), false, 1, 32);
+  size_of_packet = create_packet(&temp_msg, public_key_of_server, sizeof(public_key_of_server), false, 1, 2);
   Serial.print("Packet Reg Reply is: ");
   for (int i = 0; i < size_of_packet; i++)
     {
       Serial.print(temp_msg[i]);
       Serial.print(", ");
-    }
+    }*/
 
   
- 
+ /*
   Serial.println("");
   Serial.println("");
   free(temp_msg);  
@@ -293,8 +293,8 @@ void setup() {
 
    
   Serial.println("");
-  Serial.println("");
-  free(temp_msg);
+  Serial.println("");*/
+  /*free(temp_msg);
   size_of_packet = create_packet(&temp_msg, NULL, 0, true, 3, 59);
   Serial.print("Packet nack ciphered with empty places + 0: ");
   for (int i = 0; i < size_of_packet; i++)
@@ -303,7 +303,10 @@ void setup() {
       Serial.print(", ");
     }
 
+  Serial.println("");
+  Serial.println("");*/
 
+/*
   Serial.println("");
   Serial.println("");
   free(temp_msg);
@@ -317,9 +320,9 @@ void setup() {
 */
 
 
-  free(temp_msg);
-  size_of_packet = create_packet(&temp_msg, salt, sizeof(salt), true, 4, 57);
-  Serial.print("Packet AUTH: ");
+  /*free(temp_msg);
+  size_of_packet = create_packet(&temp_msg, salt, sizeof(salt), true, 4, 4);
+  Serial.print("Packet AUTH 8 salt: REPAIR");
   for (int i = 0; i < size_of_packet; i++)
     {
       Serial.print(temp_msg[i]);
@@ -329,7 +332,52 @@ void setup() {
   Serial.println("");
   Serial.println("");
 
+
+  Serial.println("");
+  Serial.println("");
+  
+  free(temp_msg);  
+  size_of_packet = create_packet(&temp_msg, NULL, 0, true, 2, 6);
+  Serial.print("ACK for auth: ");
+  for (int i = 0; i < size_of_packet; i++)
+    {
+      Serial.print(temp_msg[i]);
+      Serial.print(", ");
+    }
+
    
+  Serial.println("");
+  Serial.println("");
+
+
+  free(temp_msg);  
+  size_of_packet = create_packet(&temp_msg, NULL, 0, true, 3, 6);
+  Serial.print("NACK for auth: ");
+  for (int i = 0; i < size_of_packet; i++)
+    {
+      Serial.print(temp_msg[i]);
+      Serial.print(", ");
+    }
+
+   
+  Serial.println("");
+  Serial.println("");
+
+
+  free(temp_msg);  
+  size_of_packet = create_packet(&temp_msg, NULL, 0, true, 2, 8);
+  Serial.print("ACK for data: ");
+  for (int i = 0; i < size_of_packet; i++)
+    {
+      Serial.print(temp_msg[i]);
+      Serial.print(", ");
+    }
+
+   
+  Serial.println("");
+  Serial.println("");*/
+
+  /* 
   free(temp_msg);
   size_of_packet = create_packet(&temp_msg, NULL, 0, true, 7, 12);
   Serial.print("Packet STATUS: ");
@@ -353,10 +401,13 @@ void setup() {
     }
 
   Serial.println("");
-  Serial.println("");
+  Serial.println("");*/
 
-  byte lamp_on[4] = {1, 0, 1, 0};
-  byte lamp_off[4] = {1, 0, 0, 0};
+  // old byte lamp_on[4] = {1, 0, 1, 0};
+  // old byte lamp_off[4] = {1, 0, 0, 0};
+
+  byte lamp_on[7] = {1, 0, 1, 0, 1, 0, 0};
+  byte lamp_off[7] = {1, 0, 1, 0, 0, 0, 0};
 
   free(temp_msg);
   size_of_packet = create_packet(&temp_msg, lamp_on, sizeof(lamp_on), true, 6, 11);
