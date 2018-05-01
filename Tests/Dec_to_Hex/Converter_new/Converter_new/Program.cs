@@ -10,7 +10,7 @@ namespace Converter_new
     {
         static void Main(string[] args)
         {
-            int[] array_of_ints = new int[] {43, 205, 234, 100, 116, 3, 88, 8, 12, 72, 244, 28, 75, 94, 99, 152, 110, 102};
+            int[] array_of_ints = new int[] {150, 121, 226, 86, 198, 58, 145, 107, 135, 237, 61, 243, 22, 240, 85, 172, 253, 11};
             string[] array_of_hex = new string[array_of_ints.Length];
             for(int i = 0; i < array_of_ints.Length; i++)
             {
