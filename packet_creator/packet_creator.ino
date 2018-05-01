@@ -358,15 +358,15 @@ void setup() {
       Serial.print(temp_msg[i]);
       Serial.print(", ");
     }
-
+*/
    
   Serial.println("");
   Serial.println("");
 
 
   free(temp_msg);  
-  size_of_packet = create_packet(&temp_msg, NULL, 0, true, 2, 8);
-  Serial.print("ACK for data: ");
+  size_of_packet = create_packet(&temp_msg, NULL, 0, true, 2, 101);
+  Serial.print("ACK for data 101: ");
   for (int i = 0; i < size_of_packet; i++)
     {
       Serial.print(temp_msg[i]);
@@ -375,7 +375,24 @@ void setup() {
 
    
   Serial.println("");
-  Serial.println("");*/
+  Serial.println("");
+
+  Serial.println("");
+  Serial.println("");
+
+
+  free(temp_msg);  
+  size_of_packet = create_packet(&temp_msg, NULL, 0, true, 2, 103);
+  Serial.print("ACK for data 103: ");
+  for (int i = 0; i < size_of_packet; i++)
+    {
+      Serial.print(temp_msg[i]);
+      Serial.print(", ");
+    }
+
+   
+  Serial.println("");
+  Serial.println("");
 
   /* 
   free(temp_msg);
@@ -406,7 +423,7 @@ void setup() {
   // old byte lamp_on[4] = {1, 0, 1, 0};
   // old byte lamp_off[4] = {1, 0, 0, 0};
 
-  byte lamp_on[7] = {1, 0, 1, 0, 1, 0, 0};
+  /*byte lamp_on[7] = {1, 0, 1, 0, 1, 0, 0};
   byte lamp_off[7] = {1, 0, 1, 0, 0, 0, 0};
 
   free(temp_msg);
@@ -432,7 +449,9 @@ void setup() {
     }
 
   Serial.println("");
-  Serial.println("");
+  Serial.println("");*/
+
+  
 }
 
 void loop() {
