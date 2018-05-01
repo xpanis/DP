@@ -52,7 +52,6 @@ uint16_t packet_to_checksum_static[96];
 int size_of_packet = 0;
 bool register_completed = false;
 int time_to_send_buffer = 0;
-//int number_of_16_u_arrays = 0;
 //----------End of network settings----------
 
 
@@ -61,13 +60,11 @@ unsigned int minutes = 0;
 unsigned long timeNow = 0;
 unsigned long timeLast = 0;
 unsigned int last_minute = 0;
+bool flag_of_random = true;
 
 
 //----------Start of prepared msg----------
 char reply_err_msg[] = "err msg, not identify type of msg";       // err msg
-//uint8_t * deciphered_packet;
-//uint8_t ** input_parts_of_packet;
-//uint8_t ** output_parts_of_packet;
 uint8_t input_parts_of_packet_static[6][16];
 uint8_t output_parts_of_packet_static[6][16];
 //----------End of prepared msg----------
@@ -135,6 +132,25 @@ void connect_to_net_via_wifi()
 
 
 
+void sequence_number_generator()
+{
+  if ((flag_of_random) && (generate_dfh))
+  {
+    randomSeed(analogRead(0));
+    act_seq_number = (random(16384)) * 2;
+    flag_of_random = false;
+  }
+  else
+  {
+    act_seq_number += 2;
+    act_seq_number = act_seq_number % 32768;
+  }
+  seq_number = act_seq_number;
+  expected_seq_number = seq_number + 1;
+}
+
+
+
 uint16_t sum_calc(uint16_t lenght, uint16_t * input)
 {
   uint16_t word16 = 0;
@@ -155,10 +171,58 @@ return ((uint16_t) sum);
 }
 
 
+void prepare_number_to_data_msg(float input_number, byte * rest_output, long * number_output)
+{
+  *rest_output = 0;  
+  long value_without_rest = 0;  
+  byte adding_to_value = 0;
+  
+  if (input_number < 0)
+  {
+    input_number = input_number * (-1);
+    adding_to_value += 100;
+  }
+  value_without_rest = (long) input_number;
+  *number_output = value_without_rest;
+  *rest_output = round((input_number - value_without_rest) * 100) + adding_to_value;
+}
+
+
 void do_periodic_func()
 {
   //measere value from sensor and if is right time, send it as Data packet
   //or extra functionality
+  //for test hard DATA:
+  
+  //sequence_number_generator();  -for real ONE
+  seq_number = 100;
+  expected_seq_number = seq_number + 1;
+  byte data_to_send[8];
+  byte item1 = 1; //temperature sensor
+  byte item2 = 2; //preassure
+  float temp_is = -11.21;
+  float press_is = 350.06;
+  
+  byte rest_of_temp = 0;
+  long temp = 0;
+  byte rest_of_pressure = 0;
+  long pressure = 0;
+  int size_of_msg = sizeof(data_to_send) + 4;
+
+  prepare_number_to_data_msg(temp_is, &rest_of_temp, &temp);
+  prepare_number_to_data_msg(press_is, &rest_of_pressure, &pressure);
+  
+  convert_number_to_array_on_position(data_to_send, 0, 1, (long) item1);
+  convert_number_to_array_on_position(data_to_send, 1, 2, temp);
+  convert_number_to_array_on_position(data_to_send, 3, 1, rest_of_temp);
+
+  convert_number_to_array_on_position(data_to_send, 4, 1, (long) item2);
+  convert_number_to_array_on_position(data_to_send, 5, 2, pressure);
+  convert_number_to_array_on_position(data_to_send, 7, 1, rest_of_pressure);
+  
+  size_of_packet = create_packet(temp_msg_static, data_to_send, sizeof(data_to_send), true, size_of_msg, seq_number);
+  send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
+  push_to_buffer(temp_msg_static, size_of_packet, expected_seq_number, false);
 }
 
 
@@ -266,7 +330,7 @@ void push_to_buffer(byte input_data[], byte size_of_input_data, int seq_number, 
         {
           buffer_temp_msg_static[free_place_do_input_data][j] = 0; // clean of removed place
         }
-        buffer_help[i][1] = 0;
+        buffer_help[free_place_do_input_data][1] = 0;
       }
     }
   }
@@ -285,9 +349,34 @@ void push_to_buffer(byte input_data[], byte size_of_input_data, int seq_number, 
   }
   
   buffer_help[free_place_do_input_data][0] = size_of_input_data;
-  seq_number++;
-  buffer_help[free_place_do_input_data][5] = (is_fin = true) ? 1: 0;
-  convert_number_to_array_on_position(buffer_help[free_place_do_input_data], 2, 2, seq_number);
+  buffer_help[free_place_do_input_data][5] = (is_fin == true) ? 1: 0;
+  convert_number_to_array_on_position(buffer_help[free_place_do_input_data], 2, 2, expected_seq_number);
+
+  Serial.println("");
+  Serial.println("");
+  Serial.println("Vypis buffer table: ");
+  for (int i = 0; i < 6; i++)
+  {
+    for (int j = 0; j < 20; j++)
+    {
+      Serial.print(buffer_temp_msg_static[i][j]);
+      Serial.print(",");
+    }
+    Serial.println("");
+  }
+
+  Serial.println("");
+  Serial.println("");
+  Serial.println("Vypis Help Buffer table: ");
+  for (int i = 0; i < 6; i++)
+  {
+    for (int j = 0; j < 6; j++)
+    {
+      Serial.print(buffer_help[i][j]);
+      Serial.print(",");
+    }
+    Serial.println("");
+  }
 }
 
 
@@ -331,11 +420,14 @@ void sort_help_buffer()
 
 bool clean_from_buffer(int expected_seq_number, bool * is_fin)
 {
+  Serial.println("In clean from buffer, seq number come");
+  Serial.println(expected_seq_number);
   bool is_in_buffer = false;
   for (int i = 0; i < 6; i++)
   {
     if (expected_seq_number == convert_byte_to_int(buffer_help[i], 2, 2))
     {
+      Serial.println("Deleting");
       *is_fin = (buffer_help[i][5] == 1) ? true: false;
       //clean from buffer
       for (int j = 0; j < 98; j++)
@@ -351,24 +443,35 @@ bool clean_from_buffer(int expected_seq_number, bool * is_fin)
       break;
     }
   }
+
+  Serial.println("");
+  Serial.println("");
+  Serial.println("Vypis buffer table: ");
+  for (int i = 0; i < 6; i++)
+  {
+    for (int j = 0; j < 20; j++)
+    {
+      Serial.print(buffer_temp_msg_static[i][j]);
+      Serial.print(",");
+    }
+    Serial.println("");
+  }
+
+  Serial.println("");
+  Serial.println("");
+  Serial.println("Vypis Help Buffer table: ");
+  for (int i = 0; i < 6; i++)
+  {
+    for (int j = 0; j < 6; j++)
+    {
+      Serial.print(buffer_help[i][j]);
+      Serial.print(",");
+    }
+    Serial.println("");
+  }
+  
   return is_in_buffer;
 }
-
-
-
-/*uint8_t * convert_array_of_bytes_to_array(byte data[], byte start_index, byte data_size) //get array from MSG array to arduino - just ONE USE for NOW - maybe will be problem!
-{
-  uint8_t * ret_array;
-  ret_array = NULL;
-  alocate_msg_mem(&ret_array, data_size);
-  int j = start_index;
-  for (int i = 0; i <  data_size; i++)
-  {
-    ret_array[i] = data[j];
-    j++;
-  }  
-  return ret_array;
-}*/
 
 
 void convert_array_of_bytes_to_array(uint8_t output_data[], byte output_data_size, byte input_data[], byte start_index, byte input_data_size) //get array from MSG array to arduino
@@ -635,6 +738,7 @@ void reg_and_auth()
           {
             Serial.println("RLY generating keys!");
             Curve25519::dh1(public_key_of_arduino, private_key_of_arduino);
+            sequence_number_generator();
           }
           else
           {
@@ -644,10 +748,10 @@ void reg_and_auth()
               public_key_of_arduino[i] = fake_public_key_of_arduino[i];
               private_key_of_arduino[i] = fake_private_key[i];
             }
+            act_seq_number = 1; // for test
+            seq_number = act_seq_number;
+            expected_seq_number = seq_number + 1;
           }
-          act_seq_number = 1; //TO DO - generate number from 0 - 32767
-          seq_number = act_seq_number;
-          expected_seq_number = seq_number + 1;
           
           size_of_packet = create_packet(temp_msg_static, public_key_of_arduino, sizeof(public_key_of_arduino), false, 0, seq_number);
           send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet);
@@ -706,9 +810,8 @@ void reg_and_auth()
        case 2 : //send ACK to reg response
        {
           Serial.println("STATE 2");
-          act_seq_number += 2;
-          seq_number = act_seq_number;
-          expected_seq_number = seq_number + 1;
+          sequence_number_generator();
+          
           
           size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 2, seq_number);
           send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
@@ -771,9 +874,7 @@ void reg_and_auth()
             Serial.println("");
             Serial.println("");
 
-            act_seq_number += 2;
-            seq_number = act_seq_number;
-            expected_seq_number = seq_number + 1;
+            sequence_number_generator();
 
             Serial.print("1");
             size_of_packet = create_packet(temp_msg_static, hashed_auth_code, sizeof(hashed_auth_code), true, 5, seq_number);
@@ -840,9 +941,7 @@ void reg_and_auth()
           {
             Serial.println("STATE 6");
 
-            act_seq_number += 2;
-            seq_number = act_seq_number;
-            expected_seq_number = seq_number + 1;
+            sequence_number_generator();
             
             byte array_of_devices[92];
             int type_of_device_1 = 6;
@@ -970,13 +1069,15 @@ void set_command()
   //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet);
   send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
   //send_udp_msg(remote_ip, remote_port, ack_msg, (sizeof(ack_msg))); // send ACK
-  
+
+  int offset = 0;
   for (int i = 0; i < number_of_cmds; i++)
   {
     Serial.println("Pushujem do sheduling table!");
     //set command into sheduling table
-    push_cmd_to_buffer(convert_byte_to_int(packet_buffer, 5, 2), convert_byte_to_int(packet_buffer, 7, 2), packet_buffer[9], convert_byte_to_int(packet_buffer, 10, 2)); //TO DO - podmienka, pushovat, len ak dane zariadenia mam!!!!!!!!!!!
+    push_cmd_to_buffer(convert_byte_to_int(packet_buffer, (5 + offset), 2), convert_byte_to_int(packet_buffer, (7 + offset), 2), packet_buffer[9 + offset], convert_byte_to_int(packet_buffer, (10 + offset), 2)); //TO DO - podmienka, pushovat, len ak dane zariadenia mam!!!!!!!!!!!
     Serial.println("Dopushovane sheduling table!");
+    offset += 7;
   }
 }
 
@@ -1021,15 +1122,10 @@ void push_cmd_to_buffer(int _item, int _value1, byte _value2, int _time) //neede
       cmd_help[i][1]++;
     }
   }
-  Serial.println("Zapis do shedulovacej tabulky!");
   convert_number_to_array_on_position(sheduling_table[free_place_do_input_data], 0, 2, _item);
-  Serial.println("1");
   convert_number_to_array_on_position(sheduling_table[free_place_do_input_data], 2, 2, (long) _value1);
-  Serial.println("2");
   convert_number_to_array_on_position(sheduling_table[free_place_do_input_data], 4, 1, (long) _value2);
-  Serial.println("4");
   convert_number_to_array_on_position(sheduling_table[free_place_do_input_data], 5, 2, (_time + minutes)); // time
-  Serial.println("5");
   cmd_help[free_place_do_input_data][0] = 1;
 
   Serial.println("");
@@ -1682,14 +1778,14 @@ void loop()
   else
   {
         // start time for addition code e.g. call of funcion on relay, lamp, door lock
-      Serial.println("Zaciatok cakania");
+      /*Serial.println("Zaciatok cakania");
       do_periodic_func();
       delay(10000);
       Serial.println("Koniec cakania");
       
       timer();
       
-      // end time for addition code
+      // end time for addition code*/
         while (1)
         {
           packetSize = udp.parsePacket();
@@ -1705,6 +1801,8 @@ void loop()
             break;
           }
         }
+    do_periodic_func();
+    delay(5000);
   //test
   }
 }
