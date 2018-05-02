@@ -159,22 +159,24 @@ int number_of_words_is(int size_of_payload)
 
 int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bool is_crypted, int type, int seq_number)
 {
+  Serial.print("2");
   int size_of_whole_packet = 0;
   *packet_to_ret = NULL;
   byte * msg;
   msg = *packet_to_ret;
   free(msg);
-  
+  Serial.print("3");
   if (is_crypted)
   {
     number_of_16_u_arrays = number_of_words_is(size_of_payload);
     int size_of_temp_msg_to_cipher = size_of_payload + 4;
-    
+    Serial.print("4");
     alocate_msg_mem(&msg, ((16 * number_of_16_u_arrays) + 2));
     *packet_to_ret = msg;
     alocate_msg_mem(&temp_msg_to_cipher, size_of_temp_msg_to_cipher); //sign of size of payload: type + seq + 32bytes of hash
     input_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t)); //allocate x times word (16bytes block) to cipher: input + output
     output_parts_of_packet = (uint8_t **) malloc(number_of_16_u_arrays * sizeof(uint8_t));
+    Serial.print("5");
     for (int i = 0; i < number_of_16_u_arrays; i++)
     {
       input_parts_of_packet[i] = (uint8_t *) malloc(16 * sizeof(uint8_t));
@@ -188,9 +190,11 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
         output_parts_of_packet[i][j] = 0;
       }
     }
+    Serial.print("6");
     convert_number_to_array_on_position(temp_msg_to_cipher, 0, 2, type);
     convert_number_to_array_on_position(temp_msg_to_cipher, 2, 2, (long) seq_number);
     convert_array_to_array_on_position(temp_msg_to_cipher, 4, size_of_payload, payload); //set public key into msg
+    Serial.print("7");
     int index = 0;
     int stop_index = 16;
     for (int i = 0; i < number_of_16_u_arrays; i++)
@@ -204,12 +208,15 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
       }
       stop_index += 16;
     }    
+    Serial.print("8");
     free(temp_msg_to_cipher);
     speck.setKey(secret, 32); //with calculated cipher via DFH and set Speck key
+    Serial.print("9");
     for (int i = 0; i < number_of_16_u_arrays; i++)
     {
       speck.encryptBlock(&output_parts_of_packet[i][0], &input_parts_of_packet[i][0]);
     }
+    Serial.print("10");
     index = 0;
     stop_index = 16;
     for (int i = 0; i < number_of_16_u_arrays; i++)
@@ -220,22 +227,29 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
       }
       stop_index += 16;
     }
+    Serial.print("11");
 
-    for (int i = 0; i < number_of_16_u_arrays; i++)
+
+    /*for (int i = 0; i < number_of_16_u_arrays; i++)
     {
       free(input_parts_of_packet[i]);
       free(output_parts_of_packet[i]);
-    }
+    }*/
+    Serial.print("12");
     free(input_parts_of_packet);
     free(output_parts_of_packet);
     packet_to_checksum =  (uint16_t *) malloc((number_of_16_u_arrays * 16) * sizeof(uint16_t));
+    Serial.print("13");
     for (int i = 0; i < (number_of_16_u_arrays * 16); i++)
     {
       packet_to_checksum[i] = (uint16_t) msg[i];
     }
+    Serial.print("14");
     uint16_t checksum = sum_calc((number_of_16_u_arrays * 16), packet_to_checksum);
     free(packet_to_checksum);
+    Serial.print("15");
     convert_number_to_array_on_position(msg, (number_of_16_u_arrays * 16), 2, (long) checksum); //set checksum into msg
+    Serial.print("16");
     size_of_whole_packet = (16 * number_of_16_u_arrays) + 2;
   }
   else
@@ -258,6 +272,7 @@ int create_packet(byte ** packet_to_ret, byte * payload, int size_of_payload, bo
     size_of_whole_packet = (size_of_payload + 6);
   }
   return size_of_whole_packet;
+  Serial.print("3");
 }
 
 
@@ -360,7 +375,7 @@ void setup() {
     }
 */
    
-  Serial.println("");
+  /*Serial.println("");
   Serial.println("");
 
 
@@ -392,7 +407,7 @@ void setup() {
 
    
   Serial.println("");
-  Serial.println("");
+  Serial.println("");*/
 
   /* 
   free(temp_msg);
@@ -423,12 +438,14 @@ void setup() {
   // old byte lamp_on[4] = {1, 0, 1, 0};
   // old byte lamp_off[4] = {1, 0, 0, 0};
 
-  /*byte lamp_on[7] = {1, 0, 1, 0, 1, 0, 0};
+  byte lamp_on[7] = {1, 0, 1, 0, 1, 0, 0};
   byte lamp_off[7] = {1, 0, 1, 0, 0, 0, 0};
+  byte lamp_on_off_on[19] = {3, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 2};
 
-  free(temp_msg);
-  size_of_packet = create_packet(&temp_msg, lamp_on, sizeof(lamp_on), true, 6, 11);
-  Serial.print("Packet COMMAND LAMP ON: ");
+  //free(temp_msg);
+  Serial.print("1");
+  size_of_packet = create_packet(&temp_msg, lamp_on_off_on, sizeof(lamp_on_off_on), true, 6, 25);
+  Serial.print("Packet COMMAND LAMP ON0_OFF1_ON2: ");
   for (int i = 0; i < size_of_packet; i++)
     {
       Serial.print(temp_msg[i]);
@@ -439,7 +456,7 @@ void setup() {
   Serial.println("");
   
 
-  free(temp_msg);
+  /*free(temp_msg);
   size_of_packet = create_packet(&temp_msg, lamp_off, sizeof(lamp_off), true, 6, 14);
   Serial.print("Packet COMMAND LAMP OFF: ");
   for (int i = 0; i < size_of_packet; i++)
