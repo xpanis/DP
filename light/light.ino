@@ -11,7 +11,7 @@
 //----------Start of define----------
 #define Light 14 // on Arduino UNO PIN 13 -> Wemos declarate as 14 - WEIRD :D
 #define port_pc 4444 //default port pc listen on
-#define debug true  //true if debging.... false if correct program
+#define debug false  //true if debging.... false if correct program
 #define generate_dfh false  //if false -> communicate with server via define keys
 //----------End of define----------
 
@@ -21,53 +21,65 @@
 const char* ssid = "DESKTOP-066IE8G 4066";
 const char* password = "janko888";
 unsigned int localPort = 8888;      // port to listen on
+unsigned int remote_port;
 IPAddress ip_pc(192, 168, 137, 1);  // gateway
 IPAddress remote_ip;
 WiFiUDP udp;  // instance to receive a send packet via UDP
-int expected_seq_number = 0;
-int act_seq_number = 0;
-int seq_number = 0;
-int packetSize = 0;
-int remote_port;
+//----------End of network settings----------
+
+
+
+//----------Start of Fields----------
 byte packet_buffer[UDP_TX_PACKET_MAX_SIZE]; //buffer to hold incoming packet
-byte my_array[10]={-1,0,1,150,254,255,256,257,350,720};
-byte ack_msg[6]={0,2,0,0,10,10};
-uint8_t state_of_device = 0;
-//byte *raw_packet;
+uint8_t input_parts_of_packet_static[6][16];
+uint8_t output_parts_of_packet_static[6][16];
+uint16_t packet_to_checksum_static[96];
 byte raw_packet_static[98];
-//byte *temp_msg;
 byte temp_msg_static[98];
+//----------End of Fields----------
+
+
+
+//----------Start of Buffers----------
 byte buffer_temp_msg_static[6][98];
 byte buffer_help[6][6];
 byte sheduling_table[10][7];
 byte cmd_help[10][3];
-//byte *temp_msg_to_cipher;
+//----------End of Buffers----------
+
+
+
+//----------Start of Variables----------
+int expected_seq_number = 0;
+int act_seq_number = 0;
+int seq_number = 0;
+uint8_t state_of_device = 0;
+uint8_t number_of_16_u_arrays = 0;
+int packetSize = 0;
+int size_of_packet = 0;
+//----------End of Variables----------
+
+
+
+//----------Start of Flags----------
 bool flag_of_success_reg_auth = true;
 bool have_gateway_pub_key = false;
 bool have_salt = false;
 bool come_ack = false;
 bool come_nack = false;
-uint8_t number_of_16_u_arrays = 0;
-uint16_t packet_to_checksum_static[96];
-int size_of_packet = 0;
 bool register_completed = false;
-int time_to_send_buffer = 0;
-//----------End of network settings----------
+bool flag_of_random = true;
+//----------End of Flags----------
 
 
+
+//----------Start of Timer Variables----------
 unsigned int seconds = 0;
 unsigned int minutes = 0;
 unsigned long timeNow = 0;
 unsigned long timeLast = 0;
 unsigned int last_minute = 0;
-bool flag_of_random = true;
-
-
-//----------Start of prepared msg----------
-char reply_err_msg[] = "err msg, not identify type of msg";       // err msg
-uint8_t input_parts_of_packet_static[6][16];
-uint8_t output_parts_of_packet_static[6][16];
-//----------End of prepared msg----------
+//----------End of Timer variables----------
 
 
 
@@ -77,57 +89,98 @@ uint8_t salt_from_server[8];
 uint8_t salted_code[8];
 uint8_t public_key_of_arduino[32];
 uint8_t private_key_of_arduino[32];
-//uint8_t * public_key_of_server_or_ssecret;
 uint8_t public_key_of_server_or_ssecret_static[32];
 uint8_t key_for_blake[32];
-Speck speck;
-
 uint8_t fake_public_key_of_arduino[32] = {183, 213, 11, 131, 18, 199, 146, 88, 127, 147, 102, 167, 60, 161, 231, 11, 241, 151, 138, 19, 234, 41, 102, 5, 114, 12, 135, 164, 112, 135, 31, 65};
 uint8_t fake_private_key[32] = {48, 200, 162, 104, 234, 213, 194, 111, 216, 216, 248, 240, 121, 154, 62, 179, 39, 180, 217, 200, 102, 178, 43, 105, 215, 160, 96, 44, 196, 227, 42, 72};
 uint8_t fake_public_key_of_server[32] = {174, 243, 69, 129, 50, 14, 32, 63, 61, 38, 104, 233, 157, 59, 18, 146, 231, 38, 134, 104, 218, 18, 237, 151, 178, 213, 104, 139, 155, 21, 222, 119}; //just for test withou auth phase
+Speck speck;
 //----------End of cypher and shared secret----------
 
 
 
-//----------Start of function declaration----------
+//----------Start of Init function declaration----------
 void connect_to_net_via_wifi();
 void sensors_and_actuators_init();
+void shedulling_table_init();
+void buffer_init();
 void reg_and_auth();
-int identify_packet();
-void print_general_info();
-int parse_packet(byte type_of_packet_to_parse);
+//----------End of Init function declaration----------
+
+
+
+//----------Start of function for sending data declaration----------
 void send_udp_msg(IPAddress dst_ip, int dst_port, char *msg);
 void send_udp_msg(IPAddress dst_ip, int dst_port, byte msg[], byte size_of_msg);
-void default_func();
-void change_light_state(byte state);
-void set_command();
+int create_packet(byte * packet_to_ret, byte * payload, int size_of_payload, bool is_crypted, int type, int seq_number);
+int number_of_words_is(int size_of_payload);
+void retransmission();
+void sequence_number_generator();
+//----------End of function for sending data declaration----------
+
+
+
+//----------Start of function for parse data declaration----------
+int identify_packet();
+void get_packet_to_buffer(bool need_decipher);
+int parse_packet(byte type_of_packet_to_parse);
 int checksum_check();
+uint16_t sum_calc(uint16_t lenght, uint16_t * input);
+//----------End of function for parse data declaration----------
+
+
+
+//----------Start of buffers function declaration----------
+void push_to_buffer(byte input_data[], byte size_of_input_data, int seq_number, bool is_fin);
+bool clean_from_buffer(int expected_seq_number, bool * is_fin);
+void sort_help_buffer();
+void push_cmd_to_buffer(int _item, int _value1, byte _value2, int _time);
+void do_command_from_sheduling_table();
+//----------End of buffers function declaration----------
+
+
+
+//----------Start of data prepare function declaration----------
 int convert_byte_to_int(byte data[], byte start_index, byte data_size);
-void alocate_msg_mem(byte **mem, uint8_t size_of_mem);
 void convert_number_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t number_size, long number);
 void convert_array_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t input_data_size, byte * input_data);
 void convert_array_of_bytes_to_array(uint8_t output_data[], byte output_data_size, byte input_data[], byte start_index, byte input_data_size);
-void get_packet_to_buffer(bool need_decipher);
-uint16_t sum_calc(uint16_t lenght, uint16_t * input);
-int create_packet(byte * packet_to_ret, byte * payload, int size_of_payload, bool is_crypted, int type, int seq_number);
-int number_of_words_is(int size_of_payload);
-void stop_function();
-void sort_help_buffer();
-//----------End of function declaration----------
+void prepare_number_to_data_msg(float input_number, byte * rest_output, long * number_output);
+//----------End of data prepare function declaration----------
 
-int incomingByte = 0; 
+
+
+//----------Start of Sensors and actuators function declaration----------
+void change_light_state(byte state);
+void set_command();
+void stop_function();
+//----------End of Sensors and actuators function declaration----------
+
+
+
+//----------Start of default and periodic function declaration----------
+void default_func();
+void print_general_info();
+void do_periodic_func();
+void timer();
+//----------End of default and periodic function declaration----------
+
+
 
 //----------Start of CODE----------
 void connect_to_net_via_wifi()
 {
   WiFi.begin(ssid, password);
   
-  while (WiFi.status() != WL_CONNECTED) {
+  while (WiFi.status() != WL_CONNECTED)
+  {
     delay(500);
     Serial.print(".");
   }
+  
   Serial.println("");
   Serial.println("WiFi connected");
+  Serial.println("");
 }
 
 
@@ -173,7 +226,8 @@ return ((uint16_t) sum);
 
 void prepare_number_to_data_msg(float input_number, byte * rest_output, long * number_output)
 {
-  *rest_output = 0;  
+  *rest_output = 0;
+  *number_output = 0;
   long value_without_rest = 0;  
   byte adding_to_value = 0;
   
@@ -188,13 +242,10 @@ void prepare_number_to_data_msg(float input_number, byte * rest_output, long * n
 }
 
 
-void do_periodic_func()
-{
-  //measere value from sensor and if is right time, send it as Data packet
-  //or extra functionality
-  //for test hard DATA:
-  
-  //sequence_number_generator();  -for real ONE
+
+void do_periodic_func() //measure value from sensor and if is right time, send it as Data packet  //for test hard DATA:
+{  
+  //sequence_number_generator();  //for real ONE... and coment 2 lines below
   seq_number = 100;
   expected_seq_number = seq_number + 1;
   byte data_to_send[8];
@@ -240,6 +291,7 @@ void timer()
 
   if (last_minute < minutes)
   {
+   Serial.println("**************SPECIAL TIME***************");
    last_minute = minutes;
    do_command_from_sheduling_table();
    retransmission();
@@ -285,10 +337,13 @@ void buffer_init()
 
 void retransmission()
 {
+  Serial.println("Do retransmission");
   for (int i = 0; i < 6 ; i++)
   {
     if (buffer_help[i][0] != 0)
     {
+      Serial.println("Send retransmission");
+      Serial.println(i);
       send_udp_msg(ip_pc, port_pc, &buffer_temp_msg_static[i][0], buffer_help[i][0]); //can be remote IP and PORT
       for (int j = 0; j < 98; j++)
       {
@@ -305,7 +360,7 @@ void retransmission()
 
 
 
-void push_to_buffer(byte input_data[], byte size_of_input_data, int seq_number, bool is_fin) //only DATA + FIN!!!!!!!!!!!!!!!
+void push_to_buffer(byte input_data[], byte size_of_input_data, int seq_number, bool is_fin) //only DATA + FIN!
 {
   byte free_place_do_input_data = 100;
   
@@ -396,7 +451,6 @@ void sort_help_buffer()
         if (missing_number < act_number)
         {
           buffer_help[i][1] = missing_number;
-          //missing_number = act_number;
         }
         is_this_number_in_buffer = true;
         break;
@@ -420,16 +474,12 @@ void sort_help_buffer()
 
 bool clean_from_buffer(int expected_seq_number, bool * is_fin)
 {
-  Serial.println("In clean from buffer, seq number come");
-  Serial.println(expected_seq_number);
   bool is_in_buffer = false;
   for (int i = 0; i < 6; i++)
   {
     if (expected_seq_number == convert_byte_to_int(buffer_help[i], 2, 2))
     {
-      Serial.println("Deleting");
       *is_fin = (buffer_help[i][5] == 1) ? true: false;
-      //clean from buffer
       for (int j = 0; j < 98; j++)
       {
         buffer_temp_msg_static[i][j] = 0;
@@ -557,20 +607,6 @@ void convert_array_to_array_on_position(byte * data_array, uint8_t start_index, 
 
 
 
-/*void alocate_msg_mem(byte **mem, uint8_t size_of_mem)
-{
-  *mem = NULL;
-  *mem = (byte *) malloc(size_of_mem * sizeof(byte));
-
- if(*mem == NULL)
-  {
-      free(*mem);
-      Serial.println("Erro of allocation!");
-  }
-}*/
-
-
-
 void sensors_and_actuators_init()
 {
   pinMode(Light, OUTPUT);
@@ -646,7 +682,7 @@ int create_packet(byte * packet_to_ret, byte * payload, int size_of_payload, boo
       stop_index += 16;
     }
 
-    Serial.println("In input after fill is: ");
+    /*Serial.println("Not ciphered MSG in inputs arrays: ");
     for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
     {
       Serial.print("Pole ");
@@ -659,28 +695,27 @@ int create_packet(byte * packet_to_ret, byte * payload, int size_of_payload, boo
       }
     }
     Serial.println("");
-    Serial.println("");
+    Serial.println("");*/
     
-    //speck.setKey(public_key_of_server_or_ssecret, 32); //with calculated cipher via DFH and set Speck key
-    
-    Serial.println("I: ");
     for (int i = 0; i < number_of_16_u_arrays; i++)
     {
+      speck.encryptBlock(&output_parts_of_packet_static[i][0], &input_parts_of_packet_static[i][0]);
+    }
+
+    /*Serial.println("Ciphered MSG in onputs arrays: ");
+    for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
+    {
+      Serial.print("Pole ");
       Serial.print(i);
-      Serial.print(", ");
-      Serial.println("");
-      speck.encryptBlock(&output_parts_of_packet_static[i][0], &input_parts_of_packet_static[i][0]);  //CRASHER HERE in i = 2; when come AUTH
-      Serial.print("Ciphered is: ");
+      Serial.print(" is: ");
       for (int j = 0; j < 16; j++)
       {
         Serial.print(output_parts_of_packet_static[i][j]);
         Serial.print(", ");
       }
-      Serial.print(" Encrypt OK! ");
-      Serial.println("");
     }
     Serial.println("");
-    Serial.println("In create packet: 14");
+    Serial.println("");*/
     
     index = 0;
     stop_index = 16;
@@ -692,7 +727,7 @@ int create_packet(byte * packet_to_ret, byte * payload, int size_of_payload, boo
       }
       stop_index += 16;
     }
-    Serial.println("In create packet: 15");
+    
     for (int i = 0; i < (number_of_16_u_arrays * 16); i++)
     {
       packet_to_checksum_static[i] = (uint16_t) packet_to_ret[i];
@@ -752,6 +787,12 @@ void reg_and_auth()
             seq_number = act_seq_number;
             expected_seq_number = seq_number + 1;
           }
+          Serial.println("");
+          Serial.print("S0 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
+          Serial.print(act_seq_number);
+          Serial.print(seq_number);
+          Serial.print(expected_seq_number);
+          Serial.println("");
           
           size_of_packet = create_packet(temp_msg_static, public_key_of_arduino, sizeof(public_key_of_arduino), false, 0, seq_number);
           send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet);
@@ -761,6 +802,14 @@ void reg_and_auth()
        case 1 : //wait for public key from server
        {
           Serial.println("STATE 1");
+
+          Serial.println("");
+          Serial.print("S1 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
+          Serial.print(act_seq_number);
+          Serial.print(seq_number);
+          Serial.print(expected_seq_number);
+          Serial.println("");
+          
           uint8_t wait_times = 0;
           uint8_t cancel_flag = 0;
           while (!cancel_flag) // listening UDP register_response packets
@@ -812,6 +861,12 @@ void reg_and_auth()
           Serial.println("STATE 2");
           sequence_number_generator();
           
+          Serial.println("");
+          Serial.print("S2 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
+          Serial.print(act_seq_number);
+          Serial.print(seq_number);
+          Serial.print(expected_seq_number);
+          Serial.println("");
           
           size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 2, seq_number);
           send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
@@ -821,7 +876,15 @@ void reg_and_auth()
        }
        case 3 : //wait for SALT - auth packet - SEQ
        {
-        Serial.println("STATE 3");
+          Serial.println("STATE 3");
+
+          Serial.println("");
+          Serial.print("S3 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
+          Serial.print(act_seq_number);
+          Serial.print(seq_number);
+          Serial.print(expected_seq_number);
+          Serial.println("");
+          
           uint8_t wait_times = 0;
           uint8_t cancel_flag = 0;
           while (!cancel_flag) // listening UDP register_response packets
@@ -876,6 +939,13 @@ void reg_and_auth()
 
             sequence_number_generator();
 
+            Serial.println("");
+            Serial.print("S4 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
+            Serial.print(act_seq_number);
+            Serial.print(seq_number);
+            Serial.print(expected_seq_number);
+            Serial.println("");
+
             Serial.print("1");
             size_of_packet = create_packet(temp_msg_static, hashed_auth_code, sizeof(hashed_auth_code), true, 5, seq_number);
             Serial.print("2");
@@ -889,6 +959,14 @@ void reg_and_auth()
        case 5 : //wait for acknoladge / notack
           {
             Serial.println("STATE 5");
+
+            Serial.println("");
+            Serial.print("S5 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
+            Serial.print(act_seq_number);
+            Serial.print(seq_number);
+            Serial.print(expected_seq_number);
+            Serial.println("");
+            
             //seq number from packet must == seq_number;
             uint8_t wait_times = 0;
             uint8_t cancel_flag = 0;
@@ -942,6 +1020,13 @@ void reg_and_auth()
             Serial.println("STATE 6");
 
             sequence_number_generator();
+
+            Serial.println("");
+            Serial.print("S6 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
+            Serial.print(act_seq_number);
+            Serial.print(seq_number);
+            Serial.print(expected_seq_number);
+            Serial.println("");
             
             byte array_of_devices[92];
             int type_of_device_1 = 6;
@@ -953,8 +1038,8 @@ void reg_and_auth()
             }
             convert_number_to_array_on_position(array_of_devices, 2, 2, 1);
             convert_number_to_array_on_position(array_of_devices, 4, 1, type_of_device_1);
-            Serial.println("msg about devices: ");
-            for (int i = 0; i < 92; i++)
+            Serial.println("msg about devices, not ciphered: ");
+            for (int i = 0; i < 30; i++) // right is to 92 - but not needed for test (30 is good)
             {
               Serial.print(array_of_devices[i]);
               Serial.print(", ");
@@ -969,6 +1054,14 @@ void reg_and_auth()
        case 7 : //wait for ack/nack of getting mine devices
           {
             Serial.println("STATE 7");
+
+            Serial.println("");
+            Serial.print("S7 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
+            Serial.print(act_seq_number);
+            Serial.print(seq_number);
+            Serial.print(expected_seq_number);
+            Serial.println("");
+            
             //seq number from packet must == seq_number;
             uint8_t wait_times = 0;
             uint8_t cancel_flag = 0;
@@ -1066,28 +1159,33 @@ void set_command()
 
   seq_number++;
   size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 2, seq_number);
-  //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet);
+  //send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet); //for REAL ONE
   send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-  //send_udp_msg(remote_ip, remote_port, ack_msg, (sizeof(ack_msg))); // send ACK
 
   int offset = 0;
   for (int i = 0; i < number_of_cmds; i++)
   {
     Serial.println("Pushujem do sheduling table!");
     //set command into sheduling table
-    push_cmd_to_buffer(convert_byte_to_int(packet_buffer, (5 + offset), 2), convert_byte_to_int(packet_buffer, (7 + offset), 2), packet_buffer[9 + offset], convert_byte_to_int(packet_buffer, (10 + offset), 2)); //TO DO - podmienka, pushovat, len ak dane zariadenia mam!!!!!!!!!!!
+    push_cmd_to_buffer(convert_byte_to_int(packet_buffer, (5 + offset), 2), convert_byte_to_int(packet_buffer, (7 + offset), 2), packet_buffer[9 + offset], convert_byte_to_int(packet_buffer, (10 + offset), 1)); //TO DO - podmienka, pushovat, len ak dane zariadenia mam!!!!!!!!!!!
     Serial.println("Dopushovane sheduling table!");
-    offset += 7;
+    offset += 6;
   }
 }
 
 
 
-void push_cmd_to_buffer(int _item, int _value1, byte _value2, int _time) //needed function for get float from 3 bytes!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+void push_cmd_to_buffer(int _item, int _value1, byte _value2, int _time)
 {
+  Serial.println("Vo funkcii pushovania!");
+  Serial.println(_item);
+  Serial.println(_value1);
+  Serial.println(_value2);
+  Serial.println(_time);
+  Serial.println("");
   byte free_place_do_input_data = 100;
   
-  Serial.println("Vo funkcii pushovania!");
+  
   for (int i = 0; i < 10; i++)
   {
     if (cmd_help[i][0] == 0) // found place for data
@@ -1250,6 +1348,16 @@ void get_packet_to_buffer(bool need_decipher)
   if (need_decipher)
   {
     number_of_16_u_arrays = number_of_words_is(packetSize - 6);
+
+    for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
+    {
+      for (int j = 0; j < 16; j++)
+      {
+        input_parts_of_packet_static[i][j] = 0;
+        output_parts_of_packet_static[i][j] = 0;
+      }
+    }
+    
     if ((packetSize % 16 == 2) && (packetSize >= 18))
     {
       int index = 0;
@@ -1265,27 +1373,19 @@ void get_packet_to_buffer(bool need_decipher)
         }
         stop_index += 16;
       }
-    Serial.println("Packet RDY for decipher is: (COME wthout checksum)");
+    /*Serial.println("Packet RDY for decipher is: (COME wthout checksum), only first part 16");
     for (int i = 0; i < 16; i++)
     {
       Serial.print(input_parts_of_packet_static[0][i]);
       Serial.print(", ");
-    }
+    }*/
 
 
     for (int i = 0; i < number_of_16_u_arrays; i++)
     {
       speck.decryptBlock(&output_parts_of_packet_static[i][0], &input_parts_of_packet_static[i][0]);
-      Serial.print("Deciphered is: ");
-      for (int j = 0; j < 16; j++)
-      {
-        Serial.print(output_parts_of_packet_static[i][j]);
-        Serial.print(", ");
-      }
-      Serial.print(" Decrypt OK! ");
-      Serial.println("");
     }
-    Serial.println("");
+    
     index = 0;
     stop_index = 16;
     
@@ -1332,12 +1432,12 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
               Serial.println("end get pub key of server");
             }
           }
-          else
+          else  //in normal mode SEND NACK CIPHERED
           {
-            seq_number = 1; //TO DO
+            seq_number = convert_byte_to_int(packet_buffer, 2, 2);
+            seq_number++;
             size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 3, seq_number);
             send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-            //in normal mode SEND NACK CIPHERED
           }
           break;
        }
@@ -1353,11 +1453,13 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
               Serial.println("Prislo dobre seq number");
               come_ack = true;
             }
+            else
+            {
+              Serial.println("Prislo mi nespravne seq number");
+            }
           }
-          else
+          else  //in normal mode DO ST - WHEN I SEND DATA... I HAVE TO WAIT FOR ACK - TO DO;;;; When I send FIN - I WAIT TO SHUT DOWN - HAVE TO WAIT ACK        
           {
-            //in normal mode DO ST - WHEN I SEND DATA... I HAVE TO WAIT FOR ACK - TO DO
-            //When I send FIN - I WAIT TO SHUT DOWN - HAVE TO WAIT ACK
             bool come_fin_ack = false;
             if (clean_from_buffer(convert_byte_to_int(packet_buffer, 2, 2), &come_fin_ack))
             {
@@ -1383,11 +1485,13 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
               Serial.println("Prislo dobre seq number");
               come_nack = true;
             }
+            else
+            {
+              Serial.println("Prislo mi nespravne seq number");
+            }
           }
-          else
+          else  //in normal mode DO ST;;; When I send FIN - I WAIT TO SHUT DOWN - IF SERVER SEND ME NACK I INTERRUPT STOPPING
           {
-            //in normal mode DO ST
-            //When I send FIN - I WAIT TO SHUT DOWN - IF SERVER SEND ME NACK I INTERRUPT STOPPING
             bool come_fin_nack = false;
             if (clean_from_buffer(convert_byte_to_int(packet_buffer, 2, 2), &come_fin_nack))
             {
@@ -1403,25 +1507,24 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
           if (!register_completed) //register mode
           {
             seq_number = convert_byte_to_int(packet_buffer, 2, 2); //get seq number
-            Serial.println("Expected seq is: ");
+            /*Serial.println("Expected seq is: ");
             Serial.println(expected_seq_number);
             Serial.println("Seq number come is: ");
-            Serial.println(seq_number);
-            
+            Serial.println(seq_number);*/            
             if (seq_number == expected_seq_number)
             {
               Serial.println("Come packet with right SEQ number!");
-              Serial.print("Salt come: ");
+              //Serial.print("Salt come: ");
               for (int i = 0; i < 8; i++)
               {
                 salt_from_server[i] = packet_buffer[i + 4];
-                Serial.print(salt_from_server[i]);
-                Serial.print(", ");
+                /*Serial.print(salt_from_server[i]);
+                Serial.print(", ");*/
               }
-              Serial.println("");
-              Serial.println("");
+              //Serial.println("");
+              //Serial.println("");
               
-              Serial.print("Auth CODE of Arduino is: ");
+              /*Serial.print("Auth CODE of Arduino is: ");
               for (int i = 0; i < 8; i++)
               {
                 Serial.print(auth_code[i]);
@@ -1433,24 +1536,28 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
               Serial.print("Get SEQ number: ");
               Serial.print(seq_number);
               Serial.println("");
-              Serial.println("");
+              Serial.println("");*/
   
               Serial.print("Xored is: ");
               for (int i = 0; i < 8; i++)
               {
                 salted_code[i] = (auth_code[i] ^ salt_from_server[i]);
-                Serial.print(salted_code[i]);
-                Serial.print(", ");
+                /*Serial.print(salted_code[i]);
+                Serial.print(", ");*/
               }
-              Serial.println("");
-              Serial.println("");
-              
+              //Serial.println("");
+              //Serial.println("");
               have_salt = true;
+            }
+            else
+            {
+              Serial.println("Prislo mi nespravne seq number");
             }
           }
           else
           {
-            seq_number = 1; //TO DO
+            seq_number = convert_byte_to_int(packet_buffer, 2, 2);
+            seq_number++;
             size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 3, seq_number);
             send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
             //in normal mode SEND NACK CIPHERED
@@ -1459,30 +1566,19 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
        }
        case 5 : //mistake
        {
-        Serial.println("Parse 5");
-          if (!register_completed) //register mode
+          Serial.println("Parse 5");
+          if (state_of_device >= 2) //in normal mode SEND NACK CIPHERED
           {
-            if (state_of_device >= 2)
-            {
-              seq_number = 1; //TO DO
-              size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 3, seq_number);
-              send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-              //in normal mode SEND NACK CIPHERED
-            }
-            else
-            {
-              seq_number = 1; //TO DO
-              size_of_packet = create_packet(temp_msg_static, NULL, 0, false, 3, seq_number);
-              send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-              //SEND NACK NOT CIPHERED
-            }
-          }
-          else
-          {
-            seq_number = 1; //TO DO
+            seq_number = convert_byte_to_int(packet_buffer, 2, 2);
+            seq_number++;
             size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 3, seq_number);
             send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-            //in normal mode SEND NACK CIPHERED
+          }
+          else  //SEND NACK NOT CIPHERED
+          {
+            seq_number = 1; //In that time I can not read ciphered msg.. so seq number for sending NACK is default
+            size_of_packet = create_packet(temp_msg_static, NULL, 0, false, 3, seq_number);
+            send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
           }
           break;
        }
@@ -1491,25 +1587,24 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
         Serial.println("Parse 6");
           if (!register_completed) //register mode
           {
-            if (state_of_device >= 2)
+            if (state_of_device >= 2) //in normal mode SEND NACK CIPHERED
             {
-              seq_number = 1; //TO DO
+              seq_number = convert_byte_to_int(packet_buffer, 2, 2);
+              seq_number++;
               size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 3, seq_number);
               send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-              //in normal mode SEND NACK CIPHERED
             }
-            else
+            else  //SEND NACK NOT CIPHERED
             {
-              seq_number = 1; //TO DO
+              seq_number = 1; //In that time I can not read ciphered msg.. so seq number for sending NACK is default
               size_of_packet = create_packet(temp_msg_static, NULL, 0, false, 3, seq_number);
               send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-              //SEND NACK NOT CIPHERED
             }
           }
           else
           {
             seq_number = convert_byte_to_int(packet_buffer, 2, 2);
-            set_command(); //TO DO!!!!!!!!!!!!!!!!!!!!!!!!
+            set_command();
           }
           break;
        }
@@ -1518,29 +1613,26 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
         Serial.println("Parse 7");
          if (!register_completed) //register mode
          {
-            if (state_of_device >= 2)
+            if (state_of_device >= 2) //in normal mode SEND NACK CIPHERED
             {
-              seq_number = 1; //TO DO
+              seq_number = convert_byte_to_int(packet_buffer, 2, 2);
+              seq_number++;
               size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 3, seq_number);
               send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-              //in normal mode SEND NACK CIPHERED
             }
-            else
+            else  //SEND NACK NOT CIPHERED
             {
-              seq_number = 1; //TO DO
+              seq_number = 1; //In that time I can not read ciphered msg.. so seq number for sending NACK is default
               size_of_packet = create_packet(temp_msg_static, NULL, 0, false, 3, seq_number);
               send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-              //SEND NACK NOT CIPHERED
             }
          }
-         else
+         else //SEND ACK CIPHERED WITH CORRECT SEQ NUMBER
          {
             seq_number =  convert_byte_to_int(packet_buffer, 2, 2); //get seq number
             seq_number++;
             size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 2, seq_number);
-            send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);     
-            //status_func();
-            //SEND ACK CIPHERED WITH CORRECT SEQ NUMBER
+            send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
          }
          break;
        }
@@ -1549,60 +1641,45 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
         Serial.println("Parse 8");
          if (!register_completed) //register mode
          {
-            if (state_of_device >= 2)
+            if (state_of_device >= 2) //in normal mode SEND NACK CIPHERED
             {
-              seq_number = 1; //TO DO
+              seq_number =  convert_byte_to_int(packet_buffer, 2, 2); //get seq number
+              seq_number++;
               size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 3, seq_number);
               send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-              //in normal mode SEND NACK CIPHERED
             }
-            else
+            else  //SEND NACK NOT CIPHERED
             {
-              seq_number = 1; //TO DO
+              seq_number = 1;//In that time I can not read ciphered msg.. so seq number for sending NACK is default
               size_of_packet = create_packet(temp_msg_static, NULL, 0, false, 3, seq_number);
               send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-              //SEND NACK NOT CIPHERED
             }
          }
-         else
+         else //SEND ACK CIPHERED WITH CORRECT SEQ NUMBER;;; STOP DEVICE
          {
             seq_number =  convert_byte_to_int(packet_buffer, 2, 2); //get seq number
             seq_number++;
             size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 2, seq_number);
             send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);          
             stop_function();
-           //SEND ACK CIPHERED WITH CORRECT SEQ NUMBER
-           //STOP DEVICE
          }
          break;
        }
-       default :  //DATA
+       default :  //Come DATA, not acceptable state
        {
-        Serial.println("Parse default");
-          if (!register_completed) //register mode
+          Serial.println("Parse default");
+          if (state_of_device >= 2) //in normal mode SEND NACK CIPHERED
           {
-            if (state_of_device >= 2)
-            {
-              seq_number = 1; //TO DO
-              size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 3, seq_number);
-              send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-              //in normal mode SEND NACK CIPHERED
-            }
-            else
-            {
-              seq_number = 1; //TO DO
-              size_of_packet = create_packet(temp_msg_static, NULL, 0, false, 3, seq_number);
-              send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-              //SEND NACK NOT CIPHERED
-            }
-          }
-          else
-          {
-            default_func();
-            seq_number = 1; //TO DO
+            seq_number =  convert_byte_to_int(packet_buffer, 2, 2); //get seq number
+            seq_number++;
             size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 3, seq_number);
             send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-            //in normal mode SEND NACK CIPHERED
+          }
+          else  //SEND NACK NOT CIPHERED
+          {
+            seq_number = 1; //In that time I can not read ciphered msg.. so seq number for sending NACK is default
+            size_of_packet = create_packet(temp_msg_static, NULL, 0, false, 3, seq_number);
+            send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
           }
        }
       }
@@ -1753,9 +1830,9 @@ void loop()
   // start time for addition code e.g. call of funcion on relay, lamp, door lock
   Serial.println("Zaciatok cakania");
   do_periodic_func();
-  delay(10000);
+  delay(5000);
   Serial.println("Koniec cakania");
-  
+  //periodic_test();
   timer();
   
   // end time for addition code
@@ -1801,7 +1878,7 @@ void loop()
             break;
           }
         }
-    do_periodic_func();
+    //do_periodic_func();
     delay(5000);
   //test
   }
