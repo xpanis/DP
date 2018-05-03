@@ -7,24 +7,49 @@
 //----------End of libs----------
 
 
-
 //----------Start of define----------
 #define Light 14 // on Arduino UNO PIN 13 -> Wemos declarate as 14 - WEIRD :D
-#define port_pc 4444 //default port pc listen on
 #define debug false  //true if debging.... false if correct program
 #define generate_dfh false  //if false -> communicate with server via define keys
 //----------End of define----------
 
 
 
-//----------Start of network settings----------
+//----------Start of network settings mine----------
 const char* ssid = "DESKTOP-066IE8G 4066";
 const char* password = "janko888";
-unsigned int localPort = 8888;      // port to listen on
+unsigned int port_pc = 8888;        // port of gateway listen on
+IPAddress ip_pc(192, 168, 137, 1);  // IP of gateway
+unsigned int localPort = 4444;      // port of esp8266 listen on
 unsigned int remote_port;
-IPAddress ip_pc(192, 168, 137, 1);  // gateway
 IPAddress remote_ip;
 WiFiUDP udp;  // instance to receive a send packet via UDP
+//----------End of network settings----------
+
+
+
+//----------Start of network settings mine network + luka----------
+//const char* ssid = "DESKTOP-066IE8G 4066";
+//const char* password = "janko888";
+//unsigned int localPort = 4444;      // port to listen on
+//unsigned int port_pc = 80;
+//unsigned int remote_port;
+//IPAddress ip_pc(192, 168, 137, 253);  // gateway
+//IPAddress remote_ip;
+//WiFiUDP udp;  // instance to receive a send packet via UDP
+//----------End of network settings----------
+
+
+
+//----------Start of network settings luka----------
+//const char* ssid = "BZKS";
+//const char* password = "fiitfiit";
+//unsigned int localPort = 4444;      // port to listen on
+//unsigned int port_pc = 80;
+//unsigned int remote_port;
+//IPAddress ip_pc(192, 168, 4, 1);  // gateway
+//IPAddress remote_ip;
+//WiFiUDP udp;  // instance to receive a send packet via UDP
 //----------End of network settings----------
 
 
@@ -146,6 +171,7 @@ void convert_number_to_array_on_position(byte * data_array, uint8_t start_index,
 void convert_array_to_array_on_position(byte * data_array, uint8_t start_index, uint8_t input_data_size, byte * input_data);
 void convert_array_of_bytes_to_array(uint8_t output_data[], byte output_data_size, byte input_data[], byte start_index, byte input_data_size);
 void prepare_number_to_data_msg(float input_number, byte * rest_output, long * number_output);
+float get_float_from_cmd_format(int input_number, byte input_rest);
 //----------End of data prepare function declaration----------
 
 
@@ -181,6 +207,26 @@ void connect_to_net_via_wifi()
   Serial.println("");
   Serial.println("WiFi connected");
   Serial.println("");
+}
+
+
+
+float get_float_from_cmd_format(int input_number, byte input_rest)
+{
+  float output_number = 0;
+  if (input_rest < 100)
+  {
+    output_number += (float) (input_rest / 100);
+    output_number += (float) (input_number);
+  }
+  else
+  {
+    input_rest = input_rest - 100;
+    output_number += (float) (input_rest / 100);
+    output_number += (float) (input_number);
+    output_number *= (-1);
+  }
+  return output_number;
 }
 
 
@@ -272,7 +318,7 @@ void do_periodic_func() //measure value from sensor and if is right time, send i
   convert_number_to_array_on_position(data_to_send, 7, 1, rest_of_pressure);
   
   size_of_packet = create_packet(temp_msg_static, data_to_send, sizeof(data_to_send), true, size_of_msg, seq_number);
-  send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
+  send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet);
   push_to_buffer(temp_msg_static, size_of_packet, expected_seq_number, false);
 }
 
@@ -869,8 +915,8 @@ void reg_and_auth()
           Serial.println("");
           
           size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 2, seq_number);
-          send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-          //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet); - The Real One
+          //send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
+          send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet);// - The Real One
           state_of_device++;
           break;
        }
@@ -923,10 +969,10 @@ void reg_and_auth()
           {
             Serial.println("STATE 4");
             BLAKE2s blake;
-            blake.resetHMAC(key_for_blake, sizeof(key_for_blake));
+            blake.reset(public_key_of_server_or_ssecret_static, sizeof(public_key_of_server_or_ssecret_static), 32);
             blake.update(salted_code, sizeof(salted_code));
             uint8_t hashed_auth_code[32];
-            blake.finalizeHMAC(key_for_blake, sizeof(key_for_blake), hashed_auth_code, 32);
+            blake.finalize(hashed_auth_code, 32);
             
             Serial.print("HASH after Blake2s: ");
             for (int i = 0; i < 32; i++)
@@ -949,9 +995,9 @@ void reg_and_auth()
             Serial.print("1");
             size_of_packet = create_packet(temp_msg_static, hashed_auth_code, sizeof(hashed_auth_code), true, 5, seq_number);
             Serial.print("2");
-            send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
+            //send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
             Serial.print("4");
-            //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet); - The Real One
+            send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet); //- The Real One
             state_of_device++;
             Serial.print("5");
             break;
@@ -1046,8 +1092,8 @@ void reg_and_auth()
             }
             
             size_of_packet = create_packet(temp_msg_static, array_of_devices, size_of_array, true, (size_of_array + 4), seq_number);
-            send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-            //send_udp_msg(ip_pc, port_pc, temp_msg, size_of_packet); - The Real One
+            //send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
+            send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet); //- The Real One
             state_of_device++;
             break;
           }
@@ -1159,30 +1205,34 @@ void set_command()
 
   seq_number++;
   size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 2, seq_number);
-  //send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet); //for REAL ONE
-  send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
+  send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet); //for REAL ONE
+  //send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
 
   int offset = 0;
   for (int i = 0; i < number_of_cmds; i++)
   {
+    int item = convert_byte_to_int(packet_buffer, (5 + offset), 2);
+    if ((item > 0) && (item < 2)) // HERE SET CONSTRAINS THAT DEVICE ESP8266 HAVE!
+    {
     Serial.println("Pushujem do sheduling table!");
-    //set command into sheduling table
     push_cmd_to_buffer(convert_byte_to_int(packet_buffer, (5 + offset), 2), convert_byte_to_int(packet_buffer, (7 + offset), 2), packet_buffer[9 + offset], convert_byte_to_int(packet_buffer, (10 + offset), 1)); //TO DO - podmienka, pushovat, len ak dane zariadenia mam!!!!!!!!!!!
     Serial.println("Dopushovane sheduling table!");
+    }
     offset += 6;
   }
+  do_command_from_sheduling_table(); // do CMD imidiately if has time 0 and so on
 }
 
 
 
 void push_cmd_to_buffer(int _item, int _value1, byte _value2, int _time)
 {
-  Serial.println("Vo funkcii pushovania!");
+  /*Serial.println("Vo funkcii pushovania!");
   Serial.println(_item);
   Serial.println(_value1);
   Serial.println(_value2);
   Serial.println(_time);
-  Serial.println("");
+  Serial.println("");*/
   byte free_place_do_input_data = 100;
   
   
@@ -1263,13 +1313,12 @@ void do_command_from_sheduling_table()
   {
     if ((convert_byte_to_int(sheduling_table[i], 5, 2)) <= minutes)
     {
-      //do CMD with index I; TO DO
       switch(convert_byte_to_int(sheduling_table[i], 0, 2)) // must be actuator
       {
          case 1:
          {
-            //change_light_state(convert_byte_to_int(sheduling_table[i], 2, 3)); // change state of lamp -- WARNING - have to do parse special format of number!!!!
-            change_light_state(convert_byte_to_int(sheduling_table[i], 2, 2)); // only for test
+            change_light_state((byte) get_float_from_cmd_format(convert_byte_to_int(sheduling_table[i], 2, 2), (byte) convert_byte_to_int(sheduling_table[i], 4, 1)));
+            //change_light_state(convert_byte_to_int(sheduling_table[i], 2, 2)); // only for test
             break;
          }
          default:
@@ -1340,11 +1389,26 @@ void get_packet_to_buffer(bool need_decipher)
   remote_port = udp.remotePort(); // read the packet remote port
   udp.read(packet_buffer, UDP_TX_PACKET_MAX_SIZE); // read the packet into packetBufffer
   Serial.println("Packet in get_packet_to_buffer");
+  if (packetSize > 98)
+  {
+    Serial.println("MSG is too long!");
+    return;
+  }
+
+  Serial.println("Come packet!");
+  for (int i = 0; i < packetSize; i++)
+  {
+    Serial.print(packet_buffer[i]);
+    Serial.print(", ");
+  }
+  Serial.println("");
+  Serial.println("End of come packet!");
+  
   for (int i = 0; i < packetSize; i++)
   {
     raw_packet_static[i] = packet_buffer[i];
   }
-  Serial.println("here 1");
+  
   if (need_decipher)
   {
     number_of_16_u_arrays = number_of_words_is(packetSize - 6);
@@ -1411,7 +1475,7 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
 {
   Serial.println("In parse packet");
   print_general_info();
-  if (checksum_check())
+  if ((checksum_check()) && (packetSize <= 98))
   {
     int parse_permition = identify_packet();
     if ((type_of_packet_to_parse == 0) || (type_of_packet_to_parse == parse_permition))
@@ -1513,13 +1577,13 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
             Serial.println(seq_number);*/            
             if (seq_number == expected_seq_number)
             {
-              Serial.println("Come packet with right SEQ number!");
+              //Serial.println("Come packet with right SEQ number!");
               //Serial.print("Salt come: ");
               for (int i = 0; i < 8; i++)
               {
                 salt_from_server[i] = packet_buffer[i + 4];
-                /*Serial.print(salt_from_server[i]);
-                Serial.print(", ");*/
+                //Serial.print(salt_from_server[i]);
+                //Serial.print(", ");
               }
               //Serial.println("");
               //Serial.println("");
@@ -1531,19 +1595,19 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
                 Serial.print(", ");
               }
               Serial.println("");
-              Serial.println("");
-              
-              Serial.print("Get SEQ number: ");
-              Serial.print(seq_number);
-              Serial.println("");
               Serial.println("");*/
+              
+              //Serial.print("Get SEQ number: ");
+              //Serial.print(seq_number);
+              //Serial.println("");
+              //Serial.println("");
   
-              Serial.print("Xored is: ");
+              //Serial.print("Xored is: ");
               for (int i = 0; i < 8; i++)
               {
                 salted_code[i] = (auth_code[i] ^ salt_from_server[i]);
-                /*Serial.print(salted_code[i]);
-                Serial.print(", ");*/
+                //Serial.print(salted_code[i]);
+                //Serial.print(", ");
               }
               //Serial.println("");
               //Serial.println("");
@@ -1632,7 +1696,7 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
             seq_number =  convert_byte_to_int(packet_buffer, 2, 2); //get seq number
             seq_number++;
             size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 2, seq_number);
-            send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
+            send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet);
          }
          break;
        }
@@ -1660,7 +1724,7 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
             seq_number =  convert_byte_to_int(packet_buffer, 2, 2); //get seq number
             seq_number++;
             size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 2, seq_number);
-            send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);          
+            send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet);          
             stop_function();
          }
          break;
@@ -1691,6 +1755,7 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
   }
   else
   {
+    Serial.println("Wrong checksum or packet size > 98");
     return 0; //fail of parse packet
   }    
   return 1; //corect parse packet
@@ -1791,7 +1856,8 @@ void setup()
  
     udp.begin(localPort); // listen on port
     Serial.println("UDP listen");
-    shedulling_table_init();
+    
+    /*shedulling_table_init();
     buffer_init();
   
     sensors_and_actuators_init();  // initial of modules - sensors, actuators
@@ -1817,7 +1883,7 @@ void setup()
     
     speck.setKey(public_key_of_server_or_ssecret_static, 32);
     
-    Serial.println("Koniec reg_and auth");
+    Serial.println("Koniec reg_and auth");*/
   }
 }
 
@@ -1854,6 +1920,13 @@ void loop()
   }
   else
   {
+    //send_udp_msg(ip_pc, 8888, "TEST TEST");
+    //Serial.println("SEND");
+    
+    //client.connect(host,port);
+    //client.println("Hello");
+    
+    delay(1000);
         // start time for addition code e.g. call of funcion on relay, lamp, door lock
       /*Serial.println("Zaciatok cakania");
       do_periodic_func();
@@ -1863,7 +1936,7 @@ void loop()
       timer();
       
       // end time for addition code*/
-        while (1)
+       /* while (1)
         {
           packetSize = udp.parsePacket();
           if (packetSize) // if UDP packets come
@@ -1879,7 +1952,7 @@ void loop()
           }
         }
     //do_periodic_func();
-    delay(5000);
+    delay(5000);*/
   //test
   }
 }
