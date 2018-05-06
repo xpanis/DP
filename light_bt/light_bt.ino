@@ -1848,7 +1848,7 @@ void send_bt_msg(byte msg[], byte size_of_msg)
         temp_msg_static_bt[i + 2] = msg[i];
       }
 
-      Serial1.write(msg, (int) (size_of_msg + 4));
+      Serial1.write(temp_msg_static_bt, (int) (size_of_msg + 4));
       delay(10);
       Serial.println("koniec posielania");
 }
