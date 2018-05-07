@@ -438,12 +438,12 @@ void setup() {
   // old byte lamp_on[4] = {1, 0, 1, 0};
   // old byte lamp_off[4] = {1, 0, 0, 0};
 
-  byte lamp_on[7] = {1, 0, 1, 0, 1, 0, 0};
-  byte lamp_off[7] = {1, 0, 1, 0, 0, 0, 0};
-  byte lamp_on_off_on[19] = {3, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 2};
+  byte lamp_on[7] = {1, 0, 2, 0, 1, 0, 0};
+  byte lamp_off[7] = {1, 0, 2, 0, 0, 0, 0};
+  //byte lamp_on_off_on[19] = {3, 0, 1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 2};
 
   //free(temp_msg);
-  Serial.print("1");
+  /*Serial.print("1");
   size_of_packet = create_packet(&temp_msg, lamp_on_off_on, sizeof(lamp_on_off_on), true, 6, 25);
   Serial.print("Packet COMMAND LAMP ON0_OFF1_ON2: ");
   for (int i = 0; i < size_of_packet; i++)
@@ -453,11 +453,25 @@ void setup() {
     }
 
   Serial.println("");
-  Serial.println("");
+  Serial.println("");*/
   
 
-  /*free(temp_msg);
-  size_of_packet = create_packet(&temp_msg, lamp_off, sizeof(lamp_off), true, 6, 14);
+  free(temp_msg);
+  size_of_packet = create_packet(&temp_msg, lamp_on, sizeof(lamp_on), true, 6, 20);
+  Serial.print("Packet COMMAND LAMP ON: ");
+  for (int i = 0; i < size_of_packet; i++)
+    {
+      Serial.print(temp_msg[i]);
+      Serial.print(", ");
+    }
+
+  Serial.println("");
+  Serial.println("");
+
+
+
+  free(temp_msg);
+  size_of_packet = create_packet(&temp_msg, lamp_off, sizeof(lamp_off), true, 6, 23);
   Serial.print("Packet COMMAND LAMP OFF: ");
   for (int i = 0; i < size_of_packet; i++)
     {
@@ -466,7 +480,7 @@ void setup() {
     }
 
   Serial.println("");
-  Serial.println("");*/
+  Serial.println("");
 
   
 }
