@@ -80,7 +80,7 @@ unsigned int last_minute = 0;
 
 
 //----------Start of cypher and shared secret----------
-uint8_t auth_code[8] = {23, 138, 57, 62, 241, 37, 85, 11};  //special code for each device
+uint8_t auth_code[8] = {94, 233, 245, 4, 194, 218, 83, 69};  //special code for each device
 uint8_t salt_from_server[8];
 uint8_t salted_code[8];
 uint8_t public_key_of_arduino[32];
@@ -243,36 +243,7 @@ void prepare_number_to_data_msg(float input_number, byte * rest_output, long * n
 
 
 void do_periodic_func() //measure value from sensor and if is right time, send it as Data packet  //for test hard DATA:
-{  
-  //sequence_number_generator();  //for real ONE... and coment 2 lines below
-  seq_number = 100;
-  expected_seq_number = seq_number + 1;
-  byte data_to_send[8];
-  byte item1 = 1; //temperature sensor
-  byte item2 = 2; //preassure
-  float temp_is = -11.21;
-  float press_is = 350.06;
-  
-  byte rest_of_temp = 0;
-  long temp = 0;
-  byte rest_of_pressure = 0;
-  long pressure = 0;
-  int size_of_msg = sizeof(data_to_send) + 4;
-
-  prepare_number_to_data_msg(temp_is, &rest_of_temp, &temp);
-  prepare_number_to_data_msg(press_is, &rest_of_pressure, &pressure);
-  
-  convert_number_to_array_on_position(data_to_send, 0, 1, (long) item1);
-  convert_number_to_array_on_position(data_to_send, 1, 2, temp);
-  convert_number_to_array_on_position(data_to_send, 3, 1, rest_of_temp);
-
-  convert_number_to_array_on_position(data_to_send, 4, 1, (long) item2);
-  convert_number_to_array_on_position(data_to_send, 5, 2, pressure);
-  convert_number_to_array_on_position(data_to_send, 7, 1, rest_of_pressure);
-  
-  size_of_packet = create_packet(temp_msg_static, data_to_send, sizeof(data_to_send), true, size_of_msg, seq_number);
-  send_bt_msg(temp_msg_static, size_of_packet);
-  push_to_buffer(temp_msg_static, size_of_packet, expected_seq_number, false);
+{
 }
 
 
@@ -950,7 +921,8 @@ void reg_and_auth()
             
             byte array_of_devices[92];
             int type_of_device_1 = 6;
-            int size_of_array = 3 + 2; //3 for each device + 2 for item "0"
+            int type_of_device_2 = 6;
+            int size_of_array = (3 * 2) + 2; //3 for each device + 2 for item "0"
             
             for (int i = 0; i < 92; i++)
             {
@@ -958,6 +930,9 @@ void reg_and_auth()
             }
             convert_number_to_array_on_position(array_of_devices, 2, 2, 1);
             convert_number_to_array_on_position(array_of_devices, 4, 1, type_of_device_1);
+
+            convert_number_to_array_on_position(array_of_devices, 5, 2, 1);
+            convert_number_to_array_on_position(array_of_devices, 7, 1, type_of_device_1);
             
             size_of_packet = create_packet(temp_msg_static, array_of_devices, size_of_array, true, (size_of_array + 4), seq_number);  //allert seq number
             send_bt_msg(temp_msg_static, size_of_packet);
@@ -1133,9 +1108,6 @@ void push_cmd_to_buffer(int _item, int _value1, byte _value2, int _time)
       cmd_help[i][1]++;
     }
   }
-  /*String to_print = String(_item);
-  to_print.toCharArray(printout, 10);
-  print_disp(printout);*/
   
   convert_number_to_array_on_position(sheduling_table[free_place_do_input_data], 0, 2, _item);
   convert_number_to_array_on_position(sheduling_table[free_place_do_input_data], 2, 2, (long) _value1);
@@ -1156,12 +1128,12 @@ void do_command_from_sheduling_table()
       {
          case 1:
          {
-            change_light_state((byte) get_float_from_cmd_format(convert_byte_to_int(sheduling_table[i], 2, 2), (byte) convert_byte_to_int(sheduling_table[i], 4, 1)), 1);
+            change_light_state((byte) round(get_float_from_cmd_format(convert_byte_to_int(sheduling_table[i], 2, 2), (byte) convert_byte_to_int(sheduling_table[i], 4, 1))), 1);
             break;
          }
          case 2:
          {
-            change_light_state((byte) get_float_from_cmd_format(convert_byte_to_int(sheduling_table[i], 2, 2), (byte) convert_byte_to_int(sheduling_table[i], 4, 1)), 2);
+            change_light_state((byte) round(get_float_from_cmd_format(convert_byte_to_int(sheduling_table[i], 2, 2), (byte) convert_byte_to_int(sheduling_table[i], 4, 1))), 2);
             break;
          }
       }
