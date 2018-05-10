@@ -6,15 +6,17 @@
 #include <BLAKE2s.h>
 #include <SPI.h>
 #include <MFRC522.h>
+#include <Servo.h>
 //----------End of libs----------
 
 
 //----------Start of define----------
+#define servo_pin 7
 #define cs_rfid 9
 #define rst_rfid 8
 #define cs_ethernet 10
 #define debug false  //true if debging.... false if correct program
-#define generate_dfh false  //if false -> communicate with server via define keys
+#define generate_dfh true  //if false -> communicate with server via define keys
 #define UDP_TX_PACKET_MAX_SIZE 600
 //----------End of define----------
 
@@ -61,7 +63,7 @@ uint8_t state_of_device = 0;
 uint8_t number_of_16_u_arrays = 0;
 int packetSize = 0;
 int size_of_packet = 0;
-
+Servo servo;
 MFRC522 rfid(cs_rfid, rst_rfid);
 MFRC522::MIFARE_Key key; 
 int code[] = {0,115,18,124}; //This is the stored UID
@@ -94,7 +96,7 @@ unsigned int last_minute = 0;
 
 
 //----------Start of cypher and shared secret----------
-uint8_t auth_code[8] = {23, 138, 57, 62, 241, 37, 85, 11};  //special code for each device
+uint8_t auth_code[8] = {125, 156, 93, 60, 222, 62, 98, 2};  //special code for each device
 uint8_t salt_from_server[8];
 uint8_t salted_code[8];
 uint8_t public_key_of_arduino[32];
@@ -165,6 +167,12 @@ float get_float_from_cmd_format(int input_number, byte input_rest);
 void change_light_state(byte state);
 void set_command();
 void stop_function();
+void send_data_lock_state(bool state);
+void lock(bool state);
+void readRFID();
+void ss_modes();
+void rfid_disable_eth_enable();
+void rfid_enable_eth_disable();
 //----------End of Sensors and actuators function declaration----------
 
 
@@ -179,6 +187,41 @@ void timer();
 
 
 //----------Start of CODE----------
+void send_data_lock_state(bool state)
+{
+  sequence_number_generator();  //for real ONE... and coment 2 lines below
+  byte data_to_send[5];
+  int size_of_msg = sizeof(data_to_send) + 4; 
+  int state_int = (state ? 1 : 0);
+  
+  convert_number_to_array_on_position(data_to_send, 0, 2, 1);
+  convert_number_to_array_on_position(data_to_send, 2, 2, state_int);
+  convert_number_to_array_on_position(data_to_send, 4, 1, 0);
+
+  size_of_packet = create_packet(temp_msg_static, data_to_send, sizeof(data_to_send), true, size_of_msg, seq_number);
+  send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet);
+  push_to_buffer(temp_msg_static, size_of_packet, expected_seq_number, false);
+}
+
+
+
+void lock(bool state)
+{
+  if (state)
+  {
+    servo.write(90);
+    send_data_lock_state(true);
+    delay(1000);
+    servo.write(0);
+  }
+  else
+  {
+    servo.write(0);
+    send_data_lock_state(false);
+  }
+}
+
+
 void readRFID()
 {  
   rfid.PICC_ReadCardSerial();
@@ -205,9 +248,11 @@ void readRFID()
   if(match)
   {
     Serial.println("I know this card!");
+    lock(true);
   }else
   {
     Serial.println("Unknown Card");
+    lock(false);
   }
 
   rfid.PICC_HaltA();
@@ -664,25 +709,13 @@ void convert_array_to_array_on_position(byte * data_array, uint8_t start_index, 
 
 void sensors_and_actuators_init()
 {
-  Serial.println("start_sens");
   rfid_enable_eth_disable();
   SPI.begin(); // Init SPI bus
   rfid.PCD_Init(); // Init MFRC522
   rfid_disable_eth_enable();
-  Serial.println("end_sens");
-}
-
-
-
-void change_light_state(byte state)
-{
-  /*Serial.println("State come!");
-  Serial.println(state);
-  Serial.println("");
-  if (state)
-    digitalWrite(Light, HIGH);
-  else
-    digitalWrite(Light, LOW);*/
+  
+  servo.attach(servo_pin);
+  servo.write(0);
 }
 
 
@@ -741,41 +774,11 @@ int create_packet(byte * packet_to_ret, byte * payload, int size_of_payload, boo
       }
       stop_index += 16;
     }
-
-    /*Serial.println("Not ciphered MSG in inputs arrays: ");
-    for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
-    {
-      Serial.print("Pole ");
-      Serial.print(i);
-      Serial.print(" is: ");
-      for (int j = 0; j < 16; j++)
-      {
-        Serial.print(input_parts_of_packet_static[i][j]);
-        Serial.print(", ");
-      }
-    }
-    Serial.println("");
-    Serial.println("");*/
     
     for (int i = 0; i < number_of_16_u_arrays; i++)
     {
       speck.encryptBlock(&output_parts_of_packet_static[i][0], &input_parts_of_packet_static[i][0]);
     }
-
-    /*Serial.println("Ciphered MSG in onputs arrays: ");
-    for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
-    {
-      Serial.print("Pole ");
-      Serial.print(i);
-      Serial.print(" is: ");
-      for (int j = 0; j < 16; j++)
-      {
-        Serial.print(output_parts_of_packet_static[i][j]);
-        Serial.print(", ");
-      }
-    }
-    Serial.println("");
-    Serial.println("");*/
     
     index = 0;
     stop_index = 16;
@@ -792,13 +795,9 @@ int create_packet(byte * packet_to_ret, byte * payload, int size_of_payload, boo
     {
       packet_to_checksum_static[i] = (uint16_t) packet_to_ret[i];
     }
-    Serial.println("In create packet: 20");
     uint16_t checksum = sum_calc((number_of_16_u_arrays * 16), packet_to_checksum_static);
-    Serial.println("In create packet: 22"); 
     convert_number_to_array_on_position(packet_to_ret, (number_of_16_u_arrays * 16), 2, (long) checksum); //set checksum into msg
-    Serial.println("In create packet: 23");
     size_of_whole_packet = (16 * number_of_16_u_arrays) + 2;
-    Serial.println("In create packet: 24");
   }
   else
   {    
@@ -847,12 +846,6 @@ void reg_and_auth()
             seq_number = act_seq_number;
             expected_seq_number = seq_number + 1;
           }
-          Serial.println("");
-          Serial.print("S0 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-          Serial.print(act_seq_number);
-          Serial.print(seq_number);
-          Serial.print(expected_seq_number);
-          Serial.println("");
           
           size_of_packet = create_packet(temp_msg_static, public_key_of_arduino, sizeof(public_key_of_arduino), false, 0, seq_number);
           send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet);
@@ -862,13 +855,6 @@ void reg_and_auth()
        case 1 : //wait for public key from server
        {
           Serial.println("STATE 1");
-
-          Serial.println("");
-          Serial.print("S1 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-          Serial.print(act_seq_number);
-          Serial.print(seq_number);
-          Serial.print(expected_seq_number);
-          Serial.println("");
           
           uint8_t wait_times = 0;
           uint8_t cancel_flag = 0;
@@ -921,15 +907,7 @@ void reg_and_auth()
           Serial.println("STATE 2");
           sequence_number_generator();
           
-          Serial.println("");
-          Serial.print("S2 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-          Serial.print(act_seq_number);
-          Serial.print(seq_number);
-          Serial.print(expected_seq_number);
-          Serial.println("");
-          
           size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 2, seq_number);
-          //send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
           send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet);// - The Real One
           state_of_device++;
           break;
@@ -937,13 +915,6 @@ void reg_and_auth()
        case 3 : //wait for SALT - auth packet - SEQ
        {
           Serial.println("STATE 3");
-
-          Serial.println("");
-          Serial.print("S3 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-          Serial.print(act_seq_number);
-          Serial.print(seq_number);
-          Serial.print(expected_seq_number);
-          Serial.println("");
           
           uint8_t wait_times = 0;
           uint8_t cancel_flag = 0;
@@ -998,34 +969,15 @@ void reg_and_auth()
             Serial.println("");
 
             sequence_number_generator();
-
-            Serial.println("");
-            Serial.print("S4 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-            Serial.print(act_seq_number);
-            Serial.print(seq_number);
-            Serial.print(expected_seq_number);
-            Serial.println("");
-
-            Serial.print("1");
+            
             size_of_packet = create_packet(temp_msg_static, hashed_auth_code, sizeof(hashed_auth_code), true, 5, seq_number);
-            Serial.print("2");
-            //send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-            Serial.print("4");
             send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet); //- The Real One
             state_of_device++;
-            Serial.print("5");
             break;
           }
        case 5 : //wait for acknoladge / notack
           {
             Serial.println("STATE 5");
-
-            Serial.println("");
-            Serial.print("S5 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-            Serial.print(act_seq_number);
-            Serial.print(seq_number);
-            Serial.print(expected_seq_number);
-            Serial.println("");
             
             //seq number from packet must == seq_number;
             uint8_t wait_times = 0;
@@ -1080,16 +1032,9 @@ void reg_and_auth()
             Serial.println("STATE 6");
 
             sequence_number_generator();
-
-            Serial.println("");
-            Serial.print("S6 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-            Serial.print(act_seq_number);
-            Serial.print(seq_number);
-            Serial.print(expected_seq_number);
-            Serial.println("");
             
             byte array_of_devices[92];
-            int type_of_device_1 = 6;
+            int type_of_device_1 = 1;
             int size_of_array = 3 + 2; //3 for each device + 2 for item "0"
             
             for (int i = 0; i < 92; i++)
@@ -1106,7 +1051,6 @@ void reg_and_auth()
             }
             
             size_of_packet = create_packet(temp_msg_static, array_of_devices, size_of_array, true, (size_of_array + 4), seq_number);
-            //send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
             send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet); //- The Real One
             state_of_device++;
             break;
@@ -1114,13 +1058,6 @@ void reg_and_auth()
        case 7 : //wait for ack/nack of getting mine devices
           {
             Serial.println("STATE 7");
-
-            Serial.println("");
-            Serial.print("S7 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-            Serial.print(act_seq_number);
-            Serial.print(seq_number);
-            Serial.print(expected_seq_number);
-            Serial.println("");
             
             //seq number from packet must == seq_number;
             uint8_t wait_times = 0;
@@ -1241,12 +1178,6 @@ void set_command()
 
 void push_cmd_to_buffer(int _item, int _value1, byte _value2, int _time)
 {
-  /*Serial.println("Vo funkcii pushovania!");
-  Serial.println(_item);
-  Serial.println(_value1);
-  Serial.println(_value2);
-  Serial.println(_time);
-  Serial.println("");*/
   byte free_place_do_input_data = 100;
   
   
@@ -1331,8 +1262,7 @@ void do_command_from_sheduling_table()
       {
          case 1:
          {
-            change_light_state((byte) get_float_from_cmd_format(convert_byte_to_int(sheduling_table[i], 2, 2), (byte) convert_byte_to_int(sheduling_table[i], 4, 1)));
-            //change_light_state(convert_byte_to_int(sheduling_table[i], 2, 2)); // only for test
+            lock(((byte) round(get_float_from_cmd_format(convert_byte_to_int(sheduling_table[i], 2, 2), (byte) convert_byte_to_int(sheduling_table[i], 4, 1)))) ? true : false);
             break;
          }
          default:
@@ -1451,12 +1381,6 @@ void get_packet_to_buffer(bool need_decipher)
         }
         stop_index += 16;
       }
-    /*Serial.println("Packet RDY for decipher is: (COME wthout checksum), only first part 16");
-    for (int i = 0; i < 16; i++)
-    {
-      Serial.print(input_parts_of_packet_static[0][i]);
-      Serial.print(", ");
-    }*/
 
 
     for (int i = 0; i < number_of_16_u_arrays; i++)
@@ -1585,46 +1509,18 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
           if (!register_completed) //register mode
           {
             seq_number = convert_byte_to_int(packet_buffer, 2, 2); //get seq number
-            /*Serial.println("Expected seq is: ");
-            Serial.println(expected_seq_number);
-            Serial.println("Seq number come is: ");
-            Serial.println(seq_number);*/            
             if (seq_number == expected_seq_number)
             {
-              //Serial.println("Come packet with right SEQ number!");
-              //Serial.print("Salt come: ");
               for (int i = 0; i < 8; i++)
               {
                 salt_from_server[i] = packet_buffer[i + 4];
-                //Serial.print(salt_from_server[i]);
-                //Serial.print(", ");
               }
-              //Serial.println("");
-              //Serial.println("");
               
-              /*Serial.print("Auth CODE of Arduino is: ");
-              for (int i = 0; i < 8; i++)
-              {
-                Serial.print(auth_code[i]);
-                Serial.print(", ");
-              }
-              Serial.println("");
-              Serial.println("");*/
-              
-              //Serial.print("Get SEQ number: ");
-              //Serial.print(seq_number);
-              //Serial.println("");
-              //Serial.println("");
-  
-              //Serial.print("Xored is: ");
               for (int i = 0; i < 8; i++)
               {
                 salted_code[i] = (auth_code[i] ^ salt_from_server[i]);
-                //Serial.print(salted_code[i]);
-                //Serial.print(", ");
               }
-              //Serial.println("");
-              //Serial.println("");
+              
               have_salt = true;
             }
             else
@@ -1879,7 +1775,7 @@ void loop()
   // start time for addition code e.g. call of funcion on relay, lamp, door lock
   Serial.println("Zaciatok cakania");
   do_periodic_func();
-  delay(5000);
+  delay(2000);
   Serial.println("Koniec cakania");
   timer();
   
