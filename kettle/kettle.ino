@@ -114,7 +114,7 @@ unsigned int last_minute = 0;
 
 
 //----------Start of cypher and shared secret----------
-uint8_t auth_code[8] = {23, 138, 57, 62, 241, 37, 85, 11};  //special code for each device
+uint8_t auth_code[8] = {177, 116, 109, 225, 136, 129, 219, 76};  //special code for each device
 uint8_t salt_from_server[8];
 uint8_t salted_code[8];
 uint8_t public_key_of_arduino[32];
@@ -182,6 +182,7 @@ float get_float_from_cmd_format(int input_number, byte input_rest);
 
 
 //----------Start of Sensors and actuators function declaration----------
+void send_data_kettle_off(int kettle);
 void change_kettle_state(byte state, byte device);
 void set_command();
 void stop_function();
@@ -295,42 +296,21 @@ void prepare_number_to_data_msg(float input_number, byte * rest_output, long * n
 
 
 void do_periodic_func() //measure value from sensor and if is right time, send it as Data packet  //for test hard DATA:
-{  
-  /*sequence_number_generator();  //for real ONE... and coment 2 lines below
-  byte data_to_send[8];
-
-  float _value_get;
-  byte _rest_of_value;
-  long _value;
-  
-  int size_of_msg = sizeof(data_to_send) + 4; 
-
-  prepare_number_to_data_msg(get_rain(), &_rest_of_value, &_value);
-  convert_number_to_array_on_position(data_to_send, 0, 1, 1);
-  convert_number_to_array_on_position(data_to_send, 1, 2, _value);
-  convert_number_to_array_on_position(data_to_send, 3, 1, _rest_of_value);
-  
-  prepare_number_to_data_msg(get_temp(), &_rest_of_value, &_value);
-  convert_number_to_array_on_position(data_to_send, 4, 1, 2);
-  convert_number_to_array_on_position(data_to_send, 5, 2, _value);
-  convert_number_to_array_on_position(data_to_send, 7, 1, _rest_of_value);
-  
-  size_of_packet = create_packet(temp_msg_static, data_to_send, sizeof(data_to_send), true, size_of_msg, seq_number); // false only for test - have to be ciphered - so TRUE
-  send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet);
-  push_to_buffer(temp_msg_static, size_of_packet, expected_seq_number, false);*/
+{
+  //nothing to do here
 }
 
 
 
 void send_data_kettle_off(int kettle)
 {
-  sequence_number_generator();  //for real ONE... and coment 2 lines below
-  byte data_to_send[4];
+  sequence_number_generator();
+  byte data_to_send[5];
   int size_of_msg = sizeof(data_to_send) + 4; 
   
-  convert_number_to_array_on_position(data_to_send, 0, 1, kettle);
-  convert_number_to_array_on_position(data_to_send, 1, 2, 0);
-  convert_number_to_array_on_position(data_to_send, 3, 1, 0);
+  convert_number_to_array_on_position(data_to_send, 0, 2, kettle);
+  convert_number_to_array_on_position(data_to_send, 2, 2, 0);
+  convert_number_to_array_on_position(data_to_send, 4, 1, 0);
 
   size_of_packet = create_packet(temp_msg_static, data_to_send, sizeof(data_to_send), true, size_of_msg, seq_number);
   send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet);
@@ -794,41 +774,11 @@ int create_packet(byte * packet_to_ret, byte * payload, int size_of_payload, boo
       }
       stop_index += 16;
     }
-
-    /*Serial.println("Not ciphered MSG in inputs arrays: ");
-    for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
-    {
-      Serial.print("Pole ");
-      Serial.print(i);
-      Serial.print(" is: ");
-      for (int j = 0; j < 16; j++)
-      {
-        Serial.print(input_parts_of_packet_static[i][j]);
-        Serial.print(", ");
-      }
-    }
-    Serial.println("");
-    Serial.println("");*/
     
     for (int i = 0; i < number_of_16_u_arrays; i++)
     {
       speck.encryptBlock(&output_parts_of_packet_static[i][0], &input_parts_of_packet_static[i][0]);
     }
-
-    /*Serial.println("Ciphered MSG in onputs arrays: ");
-    for (int i = 0; i < number_of_16_u_arrays; i++) //fill input + output by zeros
-    {
-      Serial.print("Pole ");
-      Serial.print(i);
-      Serial.print(" is: ");
-      for (int j = 0; j < 16; j++)
-      {
-        Serial.print(output_parts_of_packet_static[i][j]);
-        Serial.print(", ");
-      }
-    }
-    Serial.println("");
-    Serial.println("");*/
     
     index = 0;
     stop_index = 16;
@@ -845,13 +795,9 @@ int create_packet(byte * packet_to_ret, byte * payload, int size_of_payload, boo
     {
       packet_to_checksum_static[i] = (uint16_t) packet_to_ret[i];
     }
-    Serial.println("In create packet: 20");
     uint16_t checksum = sum_calc((number_of_16_u_arrays * 16), packet_to_checksum_static);
-    Serial.println("In create packet: 22"); 
     convert_number_to_array_on_position(packet_to_ret, (number_of_16_u_arrays * 16), 2, (long) checksum); //set checksum into msg
-    Serial.println("In create packet: 23");
     size_of_whole_packet = (16 * number_of_16_u_arrays) + 2;
-    Serial.println("In create packet: 24");
   }
   else
   {    
@@ -900,12 +846,6 @@ void reg_and_auth()
             seq_number = act_seq_number;
             expected_seq_number = seq_number + 1;
           }
-          Serial.println("");
-          Serial.print("S0 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-          Serial.print(act_seq_number);
-          Serial.print(seq_number);
-          Serial.print(expected_seq_number);
-          Serial.println("");
           
           size_of_packet = create_packet(temp_msg_static, public_key_of_arduino, sizeof(public_key_of_arduino), false, 0, seq_number);
           send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet);
@@ -913,16 +853,7 @@ void reg_and_auth()
           break;
        }
        case 1 : //wait for public key from server
-       {
-          Serial.println("STATE 1");
-
-          Serial.println("");
-          Serial.print("S1 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-          Serial.print(act_seq_number);
-          Serial.print(seq_number);
-          Serial.print(expected_seq_number);
-          Serial.println("");
-          
+       {          
           uint8_t wait_times = 0;
           uint8_t cancel_flag = 0;
           while (!cancel_flag) // listening UDP register_response packets
@@ -974,15 +905,7 @@ void reg_and_auth()
           Serial.println("STATE 2");
           sequence_number_generator();
           
-          Serial.println("");
-          Serial.print("S2 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-          Serial.print(act_seq_number);
-          Serial.print(seq_number);
-          Serial.print(expected_seq_number);
-          Serial.println("");
-          
           size_of_packet = create_packet(temp_msg_static, NULL, 0, true, 2, seq_number);
-          //send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
           send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet);// - The Real One
           state_of_device++;
           break;
@@ -990,13 +913,6 @@ void reg_and_auth()
        case 3 : //wait for SALT - auth packet - SEQ
        {
           Serial.println("STATE 3");
-
-          Serial.println("");
-          Serial.print("S3 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-          Serial.print(act_seq_number);
-          Serial.print(seq_number);
-          Serial.print(expected_seq_number);
-          Serial.println("");
           
           uint8_t wait_times = 0;
           uint8_t cancel_flag = 0;
@@ -1051,34 +967,15 @@ void reg_and_auth()
             Serial.println("");
 
             sequence_number_generator();
-
-            Serial.println("");
-            Serial.print("S4 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-            Serial.print(act_seq_number);
-            Serial.print(seq_number);
-            Serial.print(expected_seq_number);
-            Serial.println("");
-
-            Serial.print("1");
+            
             size_of_packet = create_packet(temp_msg_static, hashed_auth_code, sizeof(hashed_auth_code), true, 5, seq_number);
-            Serial.print("2");
-            //send_udp_msg(remote_ip, remote_port, temp_msg_static, size_of_packet);
-            Serial.print("4");
             send_udp_msg(ip_pc, port_pc, temp_msg_static, size_of_packet); //- The Real One
             state_of_device++;
-            Serial.print("5");
             break;
           }
        case 5 : //wait for acknoladge / notack
           {
             Serial.println("STATE 5");
-
-            Serial.println("");
-            Serial.print("S5 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-            Serial.print(act_seq_number);
-            Serial.print(seq_number);
-            Serial.print(expected_seq_number);
-            Serial.println("");
             
             //seq number from packet must == seq_number;
             uint8_t wait_times = 0;
@@ -1133,13 +1030,6 @@ void reg_and_auth()
             Serial.println("STATE 6");
 
             sequence_number_generator();
-
-            Serial.println("");
-            Serial.print("S6 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-            Serial.print(act_seq_number);
-            Serial.print(seq_number);
-            Serial.print(expected_seq_number);
-            Serial.println("");
             
             byte array_of_devices[92];
             int type_of_device_1 = 8;
@@ -1171,13 +1061,6 @@ void reg_and_auth()
        case 7 : //wait for ack/nack of getting mine devices
           {
             Serial.println("STATE 7");
-
-            Serial.println("");
-            Serial.print("S7 TEST SEQ NUMBERS, ACT, SEQ, EXP: ");
-            Serial.print(act_seq_number);
-            Serial.print(seq_number);
-            Serial.print(expected_seq_number);
-            Serial.println("");
             
             //seq number from packet must == seq_number;
             uint8_t wait_times = 0;
@@ -1382,12 +1265,12 @@ void do_command_from_sheduling_table()
       {
          case 1:
          {
-            change_kettle_state((byte) get_float_from_cmd_format(convert_byte_to_int(sheduling_table[i], 2, 2), (byte) convert_byte_to_int(sheduling_table[i], 4, 1)), 1);
+            change_kettle_state((byte) round(get_float_from_cmd_format(convert_byte_to_int(sheduling_table[i], 2, 2), (byte) convert_byte_to_int(sheduling_table[i], 4, 1))), 1);
             break;
          }
          case 2:
          {
-            change_kettle_state((byte) get_float_from_cmd_format(convert_byte_to_int(sheduling_table[i], 2, 2), (byte) convert_byte_to_int(sheduling_table[i], 4, 1)), 2);
+            change_kettle_state((byte) round(get_float_from_cmd_format(convert_byte_to_int(sheduling_table[i], 2, 2), (byte) convert_byte_to_int(sheduling_table[i], 4, 1))), 2);
             break;
          }
          default:
@@ -1506,12 +1389,6 @@ void get_packet_to_buffer(bool need_decipher)
         }
         stop_index += 16;
       }
-    /*Serial.println("Packet RDY for decipher is: (COME wthout checksum), only first part 16");
-    for (int i = 0; i < 16; i++)
-    {
-      Serial.print(input_parts_of_packet_static[0][i]);
-      Serial.print(", ");
-    }*/
 
 
     for (int i = 0; i < number_of_16_u_arrays; i++)
@@ -1639,47 +1516,18 @@ int parse_packet(byte type_of_packet_to_parse) // 0 - for all
         Serial.println("Parse 4");
           if (!register_completed) //register mode
           {
-            seq_number = convert_byte_to_int(packet_buffer, 2, 2); //get seq number
-            /*Serial.println("Expected seq is: ");
-            Serial.println(expected_seq_number);
-            Serial.println("Seq number come is: ");
-            Serial.println(seq_number);*/            
+            seq_number = convert_byte_to_int(packet_buffer, 2, 2); //get seq number      
             if (seq_number == expected_seq_number)
             {
-              //Serial.println("Come packet with right SEQ number!");
-              //Serial.print("Salt come: ");
               for (int i = 0; i < 8; i++)
               {
                 salt_from_server[i] = packet_buffer[i + 4];
-                //Serial.print(salt_from_server[i]);
-                //Serial.print(", ");
               }
-              //Serial.println("");
-              //Serial.println("");
               
-              /*Serial.print("Auth CODE of Arduino is: ");
-              for (int i = 0; i < 8; i++)
-              {
-                Serial.print(auth_code[i]);
-                Serial.print(", ");
-              }
-              Serial.println("");
-              Serial.println("");*/
-              
-              //Serial.print("Get SEQ number: ");
-              //Serial.print(seq_number);
-              //Serial.println("");
-              //Serial.println("");
-  
-              //Serial.print("Xored is: ");
               for (int i = 0; i < 8; i++)
               {
                 salted_code[i] = (auth_code[i] ^ salt_from_server[i]);
-                //Serial.print(salted_code[i]);
-                //Serial.print(", ");
               }
-              //Serial.println("");
-              //Serial.println("");
               have_salt = true;
             }
             else
@@ -1913,11 +1761,8 @@ void setup()
   udp.begin(localPort); // listen on port
   Serial.println("UDP listen");
   shedulling_table_init();
-  Serial.println("1");
   buffer_init();
-  Serial.println("2");
   sensors_and_actuators_init();  // initial of modules - sensors, actuators
-  Serial.println("3");
   reg_and_auth(); // registration of whole device to gateway
   Serial.println("Koniec reg_and auth");
   }
@@ -1936,8 +1781,7 @@ void loop()
   Serial.println("Zaciatok cakania");
   do_periodic_func();
   delay(5000);
-  Serial.println("Koniec cakania");
-  
+  Serial.println("Koniec cakania");  
   timer();
   
   // end time for addition code
