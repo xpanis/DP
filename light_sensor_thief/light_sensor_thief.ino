@@ -53,11 +53,11 @@ WiFiUDP udp;  // instance to receive a send packet via UDP
 //const char* ssid = "BZKS";
 //const char* password = "fiitfiit";
 //unsigned int localPort = 4444;      // port to listen on
-//unsigned int port_pc = 80;
+//unsigned int port_pc = 8888;
 //unsigned int remote_port;
 //IPAddress ip_pc(192, 168, 4, 1);  // gateway
 //IPAddress remote_ip;
-//WiFiUDP udp;  // instance to receive a send packet via UDP
+// udp;  // instance to receive a send packet via UDP
 //----------End of network settings----------
 
 

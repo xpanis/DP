@@ -25,7 +25,7 @@
 const char* ssid = "DESKTOP-066IE8G 4066";
 const char* password = "janko888";
 unsigned int port_pc = 8888;        // port of gateway listen on
-IPAddress ip_pc(192, 168, 137, 1);  // IP of gateway
+IPAddress ip_pc(192, 168, 137, 5);  // IP of gateway
 unsigned int localPort = 4444;      // port of esp8266 listen on
 unsigned int remote_port;
 IPAddress remote_ip;
@@ -48,14 +48,14 @@ WiFiUDP udp;  // instance to receive a send packet via UDP
 
 
 //----------Start of network settings luka----------
-//const char* ssid = "BZKS";
-//const char* password = "fiitfiit";
-//unsigned int localPort = 4444;      // port to listen on
-//unsigned int port_pc = 80;
-//unsigned int remote_port;
-//IPAddress ip_pc(192, 168, 4, 1);  // gateway
-//IPAddress remote_ip;
-//WiFiUDP udp;  // instance to receive a send packet via UDP
+/*const char* ssid = "BZKS";
+const char* password = "fiitfiit";
+unsigned int localPort = 4444;      // port to listen on
+unsigned int port_pc = 8888;
+unsigned int remote_port;
+IPAddress ip_pc(192, 168, 4, 1);  // gateway
+IPAddress remote_ip;
+WiFiUDP udp;  // instance to receive a send packet via UDP*/
 //----------End of network settings----------
 
 

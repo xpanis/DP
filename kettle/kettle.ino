@@ -20,7 +20,7 @@
 const char* ssid = "DESKTOP-066IE8G 4066";
 const char* password = "janko888";
 unsigned int port_pc = 8888;        // port of gateway listen on
-IPAddress ip_pc(192, 168, 137, 1);  // IP of gateway
+IPAddress ip_pc(192, 168, 137, 5);  // IP of gateway
 unsigned int localPort = 4444;      // port of esp8266 listen on
 unsigned int remote_port;
 IPAddress remote_ip;
